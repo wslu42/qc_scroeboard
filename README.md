@@ -1,15 +1,15 @@
 # QC scoreboard
 
-以 Vite、React、TypeScript 與 Firebase 製作的跨裝置課堂單選搶答系統。學生使用匿名身分加入，講師使用 Google 登入建立及控制自己的課堂；題目、作答與排行榜透過 Cloud Firestore 即時同步。
+以 Vite、React、TypeScript 與 Firebase 製作的跨裝置課堂多選作答系統。題目與選項顯示在原始投影片，學生手機顯示 A–H 八個 checkbox；題目、作答與全域個人排行榜透過 Cloud Firestore 即時同步。
 
 ## 功能與路由
 
-- `#/join`：學生輸入 6 碼課堂代碼與暱稱
-- `#/play`：回答目前開放的單選題，關題後查看答案與得分
-- `#/host`：Google 講師登入、建立課堂、開關及切換題目、查看統計
-- `#/scoreboard`：適合教室投影的個人即時排行榜
+- `#/join`：掃描 QR code 或輸入 `0S1Q01` 格式的題目代碼；首次輸入暱稱
+- `#/play`：勾選 A–H 多個答案並明確送出，關題後查看正確組合
+- `#/host`：Google 講師登入、設定題目代碼與正確組合、產生 QR code、開關及結算題目
+- `#/scoreboard`：跨所有 Session 共用的 active 個人總積分排行榜
 
-專案採 hash router。Firebase Hosting URL 例如 `https://qc-scoreboard-69c7b.web.app/#/host`；投影連結會帶入 `#/scoreboard?session=ABC234`，學生加入連結則是 `#/join?session=ABC234`。
+專案採 hash router。講師控制台位於 `https://qc-scoreboard-69c7b.web.app/#/host`；題目 QR code 連結形式為 `#/join?code=0S1Q01`。格式固定為 `0S#Q##`：Session 是一位數、Question 是兩位數。
 
 ## Firebase 架構
 
@@ -17,14 +17,15 @@
   - 講師：Google provider
   - 學生／未登入投影裝置：Anonymous provider
 - Cloud Firestore
-  - `sessions/{code}`：講師、目前題目、開關狀態及已公布答案
-  - `sessions/{code}/questions`：學生可讀的題目及選項
-  - `sessions/{code}/answerKeys`：只有該課堂講師可讀的答案
-  - `sessions/{code}/players`：暱稱及個人分數（`team` 欄位暫留作向後相容）
-  - `sessions/{code}/answers`：學生的一次性作答
+  - `config/scoreboard`：目前啟用的全域計分板 round
+  - `scoreboardRounds/{roundId}`：計分板版本與講師
+  - `scoreboardRounds/{roundId}/players`：跨 Session 累積的暱稱及個人總分
+  - `questions/{code}`：題目代碼、Session／Question 編號、開關狀態及公布答案
+  - `questions/{code}/private/answerKey`：只有題目講師可讀的正確組合
+  - `questions/{code}/answers`：學生在該 round 的一次性多選作答
 - Firebase Hosting：部署 `dist/`，所有非靜態路徑 rewrite 至 `index.html`
 
-`firestore.rules` 強制學生只能建立自己的 player 與 answer，不能修改分數、題目、答案或課堂狀態。講師只能控制 `hostUid` 等於自己 Firebase UID 的課堂。關題時由講師端批次標記作答並更新正確學生的分數；同一作答不會重複計分。
+`firestore.rules` 強制學生只能建立自己的 player 與 answer，不能修改分數、題目、答案或開關狀態。完全符合正確答案組合才得 1,000 分；關題時由講師端批次結算，同一 round、同一題、同一 UID 只能送出及計分一次。
 
 Firebase Web config 位於 `src/firebase.ts`，它是瀏覽器端公開識別資訊，不是管理員密鑰。專案內不得加入 service-account JSON、private key 或其他後端憑證。
 
@@ -96,14 +97,15 @@ firebase deploy --only hosting
 npm run deploy:firebase
 ```
 
-部署後請至少以一台講師裝置與兩台學生裝置驗證：Google 登入、建立課堂、加入、開題、單次作答、關題結算、切題及排行榜。
+部署後請至少以一台講師裝置與兩台學生裝置驗證：Google 登入、設定 `0S1Q01`、QR 加入、A–H 多選、單次送出、關題結算與全域排行榜。
 
 ## 第一版限制
 
-- 同一課堂單題結算上限為 200 位學生，避免超過 Firestore 單次 batch write 限制。
+- 單題單次結算上限為 200 位學生，避免超過 Firestore 單次 batch write 限制。
 - 清除瀏覽器網站資料後，匿名學生會取得新的 UID，無法找回舊身分或分數。
 - Google 講師登入狀態與匿名學生身分都以 browser origin 為界；切換網域會建立不同登入狀態。
-- 目前題目為建立課堂時寫入的四題 seed，尚未提供題庫編輯器。
+- 題目與選項文字只存在投影片；手機固定顯示 A–H，講師端只保存正確選項組合。
 - 第一版僅顯示個人積分；隊伍選擇與隊伍排行榜暫時隱藏。
 - 尚未啟用 App Check；正式公開並完成多裝置驗證後建議加入。
+- 所有 Session 預設共用 active scoreboard round；講師可手動開始新一輪，舊 round 不會刪除。
 - 沒有 Cloud Functions；計分由已通過 Security Rules 授權的講師裝置在關題時執行，因此講師必須保持連線直到結算完成。

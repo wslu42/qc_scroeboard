@@ -1,75 +1,79 @@
 import { useEffect, useState } from 'react'
 import {
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  signInAnonymously,
-  signInWithPopup,
-  signOut,
-  type User,
+  GoogleAuthProvider, onAuthStateChanged, signInAnonymously, signInWithPopup,
+  signOut, type User,
 } from 'firebase/auth'
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  increment,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where,
-  writeBatch,
-  type Timestamp,
+  collection, doc, getDoc, getDocs, increment, onSnapshot, query,
+  serverTimestamp, setDoc, updateDoc, where, writeBatch, type Timestamp,
 } from 'firebase/firestore'
 import { auth, db } from './firebase'
 
-export type Question = { id: string; order: number; prompt: string; options: string[] }
-export type Player = { id: string; nickname: string; team: string; score: number; joinedAt?: Timestamp }
-export type Answer = { id: string; studentUid: string; questionId: string; selectedIndex: number; awarded: boolean }
-export type Classroom = {
+export type QuestionActivity = {
   code: string
   hostUid: string
-  currentQuestionId: string
-  currentQuestionIndex: number
-  isQuestionOpen: boolean
-  revealedAnswers: Record<string, number>
+  sessionNumber: number
+  questionNumber: number
+  roundId: string
+  isOpen: boolean
+  revealedOptions: number[]
   createdAt?: Timestamp
 }
+export type ScoreboardConfig = { activeRoundId: string; hostUid: string }
+export type Player = { id: string; nickname: string; score: number; joinedAt?: Timestamp }
+export type Answer = { id: string; studentUid: string; roundId: string; selections: number[]; awarded: boolean }
+export type AnswerKey = { correctOptions: number[] }
 
-const SESSION_KEY = 'quickclass-session-code-v2'
-const CODE_CHARACTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-
-const questionSeed = [
-  { id: 'q1', prompt: '下列哪一項最符合「形成性評量」的目的？', options: ['計算期末總成績', '在學習過程中提供回饋', '決定學校排名', '篩選入學資格'], correctIndex: 1 },
-  { id: 'q2', prompt: '在網頁中，哪個 HTML 元素最適合表示主要導覽？', options: ['<section>', '<header>', '<nav>', '<aside>'], correctIndex: 2 },
-  { id: 'q3', prompt: '72 ÷ 8 + 6 的答案是多少？', options: ['9', '12', '15', '18'], correctIndex: 2 },
-  { id: 'q4', prompt: '哪一種做法最能保護你的網路帳號？', options: ['重複使用同一組密碼', '開啟多因素驗證', '把密碼傳給朋友', '使用生日當密碼'], correctIndex: 1 },
-]
+const CODE_KEY = 'qc-scoreboard-question-code-v1'
+const NICKNAME_KEY = 'qc-scoreboard-nickname-v1'
+const LEGACY_CODE_KEY = 'quickclass-session-code-v2'
 
 export function normalizeCode(value: string) {
   return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
 }
 
-export function getStoredSessionCode() {
-  return localStorage.getItem(SESSION_KEY) ?? ''
+export function isValidQuestionCode(value: string) {
+  return /^0S\dQ\d{2}$/.test(normalizeCode(value))
 }
 
-export function storeSessionCode(code: string) {
-  localStorage.setItem(SESSION_KEY, normalizeCode(code))
+export function parseQuestionCode(value: string) {
+  const code = normalizeCode(value)
+  const match = /^0S(\d)Q(\d{2})$/.exec(code)
+  return match ? { code, sessionNumber: Number(match[1]), questionNumber: Number(match[2]) } : null
+}
+
+export function getStoredQuestionCode() {
+  const code = localStorage.getItem(CODE_KEY) || localStorage.getItem(LEGACY_CODE_KEY) || ''
+  return isValidQuestionCode(code) ? normalizeCode(code) : ''
+}
+
+export function storeQuestionCode(code: string) {
+  localStorage.setItem(CODE_KEY, normalizeCode(code))
+}
+
+export function getStoredNickname() {
+  return localStorage.getItem(NICKNAME_KEY) ?? ''
+}
+
+export function storeNickname(nickname: string) {
+  localStorage.setItem(NICKNAME_KEY, nickname)
 }
 
 export function getCodeFromHash() {
   const queryString = window.location.hash.split('?')[1]
-  return normalizeCode(new URLSearchParams(queryString ?? '').get('session') ?? '')
+  const params = new URLSearchParams(queryString ?? '')
+  return normalizeCode(params.get('code') ?? params.get('session') ?? '')
 }
 
 export function useFirebaseUser() {
   const [user, setUser] = useState<User | null>(auth.currentUser)
   const [loading, setLoading] = useState(true)
-  useEffect(() => onAuthStateChanged(auth, nextUser => { setUser(nextUser); setLoading(false) }), [])
-  return { user, loading, isGoogleUser: Boolean(user && !user.isAnonymous && user.providerData.some(provider => provider.providerId === 'google.com')) }
+  useEffect(() => onAuthStateChanged(auth, next => { setUser(next); setLoading(false) }), [])
+  return {
+    user,
+    loading,
+    isGoogleUser: Boolean(user && !user.isAnonymous && user.providerData.some(provider => provider.providerId === 'google.com')),
+  }
 }
 
 export async function ensureAnonymousUser() {
@@ -88,161 +92,188 @@ export async function signOutHost() {
   await ensureAnonymousUser()
 }
 
-function randomCode() {
-  const values = crypto.getRandomValues(new Uint32Array(6))
-  return Array.from(values, value => CODE_CHARACTERS[value % CODE_CHARACTERS.length]).join('')
-}
-
-export async function createClassroom(user: User) {
-  if (user.isAnonymous || !user.providerData.some(provider => provider.providerId === 'google.com')) throw new Error('請先使用 Google 講師帳號登入。')
-  let code = ''
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const candidate = randomCode()
-    if (!(await getDoc(doc(db, 'sessions', candidate))).exists()) { code = candidate; break }
-  }
-  if (!code) throw new Error('無法建立唯一課堂代碼，請稍後再試。')
-
-  await setDoc(doc(db, 'sessions', code), {
-    code,
-    hostUid: user.uid,
-    currentQuestionId: questionSeed[0].id,
-    currentQuestionIndex: 0,
-    isQuestionOpen: false,
-    revealedAnswers: {},
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  })
-
-  const batch = writeBatch(db)
-  questionSeed.forEach((questionItem, order) => {
-    batch.set(doc(db, 'sessions', code, 'questions', questionItem.id), {
-      id: questionItem.id, order, prompt: questionItem.prompt, options: questionItem.options,
-    })
-    batch.set(doc(db, 'sessions', code, 'answerKeys', questionItem.id), {
-      questionId: questionItem.id, correctIndex: questionItem.correctIndex,
-    })
-  })
-  await batch.commit()
-  storeSessionCode(code)
-  return code
-}
-
-export async function joinClassroom(codeValue: string, nickname: string) {
+export function useQuestion(codeValue: string, enabled = true) {
   const code = normalizeCode(codeValue)
-  const team = '個人'
-  const user = await ensureAnonymousUser()
-  const sessionSnapshot = await getDoc(doc(db, 'sessions', code))
-  if (!sessionSnapshot.exists()) throw new Error('找不到這個課堂代碼，請向講師確認。')
-  const playerReference = doc(db, 'sessions', code, 'players', user.uid)
-  const playerSnapshot = await getDoc(playerReference)
-  if (playerSnapshot.exists()) {
-    await updateDoc(playerReference, { nickname, team })
-  } else {
-    await setDoc(playerReference, { id: user.uid, nickname, team, score: 0, joinedAt: serverTimestamp() })
-  }
-  storeSessionCode(code)
-  return code
-}
-
-export function useClassroom(codeValue: string, enabled = true) {
-  const code = normalizeCode(codeValue)
-  const [session, setSession] = useState<Classroom | null>(null)
-  const [questions, setQuestions] = useState<Question[]>([])
-  const [players, setPlayers] = useState<Player[]>([])
+  const [question, setQuestion] = useState<QuestionActivity | null>(null)
   const [loading, setLoading] = useState(Boolean(code && enabled))
   const [error, setError] = useState('')
-
   useEffect(() => {
-    if (!code || !enabled) { setLoading(false); return }
+    if (!isValidQuestionCode(code) || !enabled) { setQuestion(null); setLoading(false); return }
     setLoading(true); setError('')
-    const fail = (reason: Error) => { setError(reason.message); setLoading(false) }
-    const unsubSession = onSnapshot(doc(db, 'sessions', code), snapshot => {
-      setSession(snapshot.exists() ? snapshot.data() as Classroom : null)
-      if (!snapshot.exists()) setError('找不到這個課堂。')
+    return onSnapshot(doc(db, 'questions', code), snapshot => {
+      setQuestion(snapshot.exists() ? snapshot.data() as QuestionActivity : null)
+      if (!snapshot.exists()) setError('找不到這個題目代碼。')
       setLoading(false)
-    }, fail)
-    const unsubQuestions = onSnapshot(query(collection(db, 'sessions', code, 'questions'), orderBy('order')), snapshot => {
-      setQuestions(snapshot.docs.map(item => item.data() as Question))
-    }, fail)
-    const unsubPlayers = onSnapshot(collection(db, 'sessions', code, 'players'), snapshot => {
-      setPlayers(snapshot.docs.map(item => item.data() as Player))
-    }, fail)
-    return () => { unsubSession(); unsubQuestions(); unsubPlayers() }
+    }, reason => { setError(reason.message); setLoading(false) })
   }, [code, enabled])
-
-  return { session, questions, players, loading, error }
+  return { question, loading, error }
 }
 
-export function useStudentAnswer(codeValue: string, questionId: string, uid?: string) {
+export function useScoreboard(enabled = true) {
+  const [config, setConfig] = useState<ScoreboardConfig | null>(null)
+  const [players, setPlayers] = useState<Player[]>([])
+  const [loading, setLoading] = useState(enabled)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!enabled) { setLoading(false); return }
+    return onSnapshot(doc(db, 'config', 'scoreboard'), snapshot => {
+      setConfig(snapshot.exists() ? snapshot.data() as ScoreboardConfig : null)
+      setLoading(false)
+    }, reason => { setError(reason.message); setLoading(false) })
+  }, [enabled])
+  useEffect(() => {
+    if (!enabled || !config?.activeRoundId) { setPlayers([]); return }
+    return onSnapshot(collection(db, 'scoreboardRounds', config.activeRoundId, 'players'), snapshot => {
+      setPlayers(snapshot.docs.map(item => item.data() as Player))
+    }, reason => setError(reason.message))
+  }, [config?.activeRoundId, enabled])
+  return { config, players, loading, error }
+}
+
+export function useAnswerKey(codeValue: string, enabled: boolean) {
+  const code = normalizeCode(codeValue)
+  const [answerKey, setAnswerKey] = useState<AnswerKey | null>(null)
+  useEffect(() => {
+    if (!isValidQuestionCode(code) || !enabled) { setAnswerKey(null); return }
+    return onSnapshot(doc(db, 'questions', code, 'private', 'answerKey'), snapshot => {
+      setAnswerKey(snapshot.exists() ? snapshot.data() as AnswerKey : null)
+    })
+  }, [code, enabled])
+  return answerKey
+}
+
+export function useStudentAnswer(codeValue: string, roundId: string, uid?: string) {
+  const code = normalizeCode(codeValue)
   const [answer, setAnswer] = useState<Answer | null>(null)
   useEffect(() => {
-    const code = normalizeCode(codeValue)
-    if (!code || !questionId || !uid) { setAnswer(null); return }
-    return onSnapshot(doc(db, 'sessions', code, 'answers', `${uid}_${questionId}`), snapshot => {
+    if (!isValidQuestionCode(code) || !roundId || !uid) { setAnswer(null); return }
+    return onSnapshot(doc(db, 'questions', code, 'answers', `${roundId}_${uid}`), snapshot => {
       setAnswer(snapshot.exists() ? snapshot.data() as Answer : null)
     })
-  }, [codeValue, questionId, uid])
+  }, [code, roundId, uid])
   return answer
 }
 
-export function useQuestionAnswers(codeValue: string, questionId: string, enabled: boolean) {
+export function useQuestionAnswers(codeValue: string, roundId: string, enabled: boolean) {
+  const code = normalizeCode(codeValue)
   const [answers, setAnswers] = useState<Answer[]>([])
   useEffect(() => {
-    const code = normalizeCode(codeValue)
-    if (!code || !questionId || !enabled) { setAnswers([]); return }
-    const answerQuery = query(collection(db, 'sessions', code, 'answers'), where('questionId', '==', questionId))
+    if (!isValidQuestionCode(code) || !roundId || !enabled) { setAnswers([]); return }
+    const answerQuery = query(collection(db, 'questions', code, 'answers'), where('roundId', '==', roundId))
     return onSnapshot(answerQuery, snapshot => setAnswers(snapshot.docs.map(item => item.data() as Answer)))
-  }, [codeValue, questionId, enabled])
+  }, [code, roundId, enabled])
   return answers
 }
 
-export async function submitAnswer(codeValue: string, questionId: string, selectedIndex: number, uid: string) {
+async function ensureScoreboard(user: User) {
+  const configReference = doc(db, 'config', 'scoreboard')
+  const configSnapshot = await getDoc(configReference)
+  if (configSnapshot.exists()) {
+    const config = configSnapshot.data() as ScoreboardConfig
+    if (config.hostUid !== user.uid) throw new Error('目前計分板由另一個講師帳號管理。')
+    return config
+  }
+  const roundId = `round-${Date.now().toString(36)}`
+  const batch = writeBatch(db)
+  batch.set(doc(db, 'scoreboardRounds', roundId), { id: roundId, hostUid: user.uid, createdAt: serverTimestamp() })
+  batch.set(configReference, { activeRoundId: roundId, hostUid: user.uid, updatedAt: serverTimestamp() })
+  await batch.commit()
+  return { activeRoundId: roundId, hostUid: user.uid }
+}
+
+export async function startNewScoreboardRound(user: User) {
+  const config = await ensureScoreboard(user)
+  if (config.hostUid !== user.uid) throw new Error('你沒有重設這個計分板的權限。')
+  const roundId = `round-${Date.now().toString(36)}`
+  const batch = writeBatch(db)
+  batch.set(doc(db, 'scoreboardRounds', roundId), { id: roundId, hostUid: user.uid, createdAt: serverTimestamp() })
+  batch.update(doc(db, 'config', 'scoreboard'), { activeRoundId: roundId, updatedAt: serverTimestamp() })
+  await batch.commit()
+  return roundId
+}
+
+export async function prepareQuestion(user: User, codeValue: string, options: number[]) {
+  if (user.isAnonymous) throw new Error('請先使用 Google 講師帳號登入。')
+  const parsed = parseQuestionCode(codeValue)
+  if (!parsed) throw new Error('題目代碼格式應為 0S1Q01。')
+  const correctOptions = [...new Set(options)].sort((a, b) => a - b)
+  if (!correctOptions.length) throw new Error('請至少設定一個正確選項。')
+  const config = await ensureScoreboard(user)
+  const reference = doc(db, 'questions', parsed.code)
+  const existing = await getDoc(reference)
+  if (existing.exists() && existing.data().hostUid !== user.uid) throw new Error('這個題目代碼已由其他講師建立。')
+  await setDoc(reference, {
+    ...parsed,
+    hostUid: user.uid,
+    roundId: config.activeRoundId,
+    isOpen: false,
+    revealedOptions: [],
+    createdAt: existing.exists() ? existing.data().createdAt : serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  await setDoc(doc(db, 'questions', parsed.code, 'private', 'answerKey'), { correctOptions, updatedAt: serverTimestamp() })
+  storeQuestionCode(parsed.code)
+  return parsed.code
+}
+
+export async function joinQuestion(codeValue: string, nicknameValue: string) {
   const code = normalizeCode(codeValue)
-  await setDoc(doc(db, 'sessions', code, 'answers', `${uid}_${questionId}`), {
-    id: `${uid}_${questionId}`,
-    studentUid: uid,
-    questionId,
-    selectedIndex,
-    awarded: false,
-    submittedAt: serverTimestamp(),
+  if (!isValidQuestionCode(code)) throw new Error('題目代碼格式應為 0S1Q01。')
+  const nickname = nicknameValue.trim().slice(0, 20)
+  if (!nickname) throw new Error('請輸入暱稱。')
+  const user = await ensureAnonymousUser()
+  const [questionSnapshot, configSnapshot] = await Promise.all([
+    getDoc(doc(db, 'questions', code)), getDoc(doc(db, 'config', 'scoreboard')),
+  ])
+  if (!questionSnapshot.exists()) throw new Error('找不到這個題目代碼。')
+  if (!configSnapshot.exists()) throw new Error('目前沒有啟用中的計分板。')
+  const question = questionSnapshot.data() as QuestionActivity
+  const config = configSnapshot.data() as ScoreboardConfig
+  if (question.roundId !== config.activeRoundId) throw new Error('這道題目不屬於目前的計分板。')
+  const playerReference = doc(db, 'scoreboardRounds', question.roundId, 'players', user.uid)
+  const playerSnapshot = await getDoc(playerReference)
+  if (playerSnapshot.exists()) await updateDoc(playerReference, { nickname })
+  else await setDoc(playerReference, { id: user.uid, nickname, score: 0, joinedAt: serverTimestamp() })
+  storeQuestionCode(code); storeNickname(nickname)
+  return code
+}
+
+export async function submitAnswer(codeValue: string, roundId: string, selectionsValue: number[], uid: string) {
+  const code = normalizeCode(codeValue)
+  const selections = [...new Set(selectionsValue)].sort((a, b) => a - b)
+  if (!selections.length || selections.some(value => value < 0 || value > 7)) throw new Error('請至少選擇一個 A–H 選項。')
+  await setDoc(doc(db, 'questions', code, 'answers', `${roundId}_${uid}`), {
+    id: `${roundId}_${uid}`, studentUid: uid, roundId, selections, awarded: false, submittedAt: serverTimestamp(),
   })
 }
 
 export async function setQuestionOpen(codeValue: string, isOpen: boolean) {
-  await updateDoc(doc(db, 'sessions', normalizeCode(codeValue)), { isQuestionOpen: isOpen, updatedAt: serverTimestamp() })
+  await updateDoc(doc(db, 'questions', normalizeCode(codeValue)), { isOpen, updatedAt: serverTimestamp() })
 }
 
-export async function closeQuestionAndScore(codeValue: string, questionId: string) {
-  const code = normalizeCode(codeValue)
-  const keySnapshot = await getDoc(doc(db, 'sessions', code, 'answerKeys', questionId))
-  if (!keySnapshot.exists()) throw new Error('找不到這一題的答案。')
-  const correctIndex = keySnapshot.data().correctIndex as number
-  const answersSnapshot = await getDocs(query(collection(db, 'sessions', code, 'answers'), where('questionId', '==', questionId)))
-  const pendingAnswers = answersSnapshot.docs.filter(item => item.data().awarded !== true)
-  if (pendingAnswers.length > 200) throw new Error('單次結算最多支援 200 位學生，請聯絡管理者。')
+function arraysEqual(first: number[], second: number[]) {
+  return first.length === second.length && first.every((value, index) => value === second[index])
+}
 
+export async function closeQuestionAndScore(codeValue: string) {
+  const code = normalizeCode(codeValue)
+  const [questionSnapshot, keySnapshot] = await Promise.all([
+    getDoc(doc(db, 'questions', code)), getDoc(doc(db, 'questions', code, 'private', 'answerKey')),
+  ])
+  if (!questionSnapshot.exists() || !keySnapshot.exists()) throw new Error('找不到題目或答案設定。')
+  const question = questionSnapshot.data() as QuestionActivity
+  const correctOptions = [...(keySnapshot.data().correctOptions as number[])].sort((a, b) => a - b)
+  const answersSnapshot = await getDocs(query(collection(db, 'questions', code, 'answers'), where('roundId', '==', question.roundId)))
+  const pending = answersSnapshot.docs.filter(item => item.data().awarded !== true)
+  if (pending.length > 200) throw new Error('單次結算最多支援 200 位學生。')
   const batch = writeBatch(db)
-  batch.update(doc(db, 'sessions', code), {
-    isQuestionOpen: false,
-    [`revealedAnswers.${questionId}`]: correctIndex,
-    updatedAt: serverTimestamp(),
-  })
-  pendingAnswers.forEach(answerDocument => {
-    const answerData = answerDocument.data() as Answer
+  batch.update(doc(db, 'questions', code), { isOpen: false, revealedOptions: correctOptions, updatedAt: serverTimestamp() })
+  pending.forEach(answerDocument => {
+    const answer = answerDocument.data() as Answer
     batch.update(answerDocument.ref, { awarded: true })
-    if (answerData.selectedIndex === correctIndex) {
-      batch.update(doc(db, 'sessions', code, 'players', answerData.studentUid), { score: increment(1000) })
+    if (arraysEqual([...answer.selections].sort((a, b) => a - b), correctOptions)) {
+      batch.update(doc(db, 'scoreboardRounds', question.roundId, 'players', answer.studentUid), { score: increment(1000) })
     }
   })
   await batch.commit()
-}
-
-export async function changeQuestion(codeValue: string, questions: Question[], nextIndex: number) {
-  const safeIndex = Math.max(0, Math.min(nextIndex, questions.length - 1))
-  await updateDoc(doc(db, 'sessions', normalizeCode(codeValue)), {
-    currentQuestionIndex: safeIndex,
-    currentQuestionId: questions[safeIndex].id,
-    isQuestionOpen: false,
-    updatedAt: serverTimestamp(),
-  })
 }

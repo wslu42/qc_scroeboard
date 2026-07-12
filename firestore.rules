@@ -6,34 +6,42 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function session(sessionId) {
-      return get(/databases/$(database)/documents/sessions/$(sessionId)).data;
+    function googleUser() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
-    function isHost(sessionId) {
-      return signedIn() && session(sessionId).hostUid == request.auth.uid;
+    function question(questionCode) {
+      return get(/databases/$(database)/documents/questions/$(questionCode)).data;
     }
 
-    match /sessions/{sessionId} {
-      allow get: if signedIn();
-      allow list: if false;
-      allow create: if signedIn()
-        && request.auth.token.firebase.sign_in_provider == 'google.com'
+    function isQuestionHost(questionCode) {
+      return signedIn() && question(questionCode).hostUid == request.auth.uid;
+    }
+
+    function round(roundId) {
+      return get(/databases/$(database)/documents/scoreboardRounds/$(roundId)).data;
+    }
+
+    function isRoundHost(roundId) {
+      return signedIn() && round(roundId).hostUid == request.auth.uid;
+    }
+
+    match /config/scoreboard {
+      allow read: if signedIn();
+      allow create: if googleUser()
+        && request.resource.data.hostUid == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.hostUid == request.auth.uid
+        && request.resource.data.hostUid == resource.data.hostUid;
+      allow delete: if false;
+    }
+
+    match /scoreboardRounds/{roundId} {
+      allow read: if signedIn();
+      allow create: if googleUser()
         && request.resource.data.hostUid == request.auth.uid
-        && request.resource.data.code == sessionId;
-      allow update: if isHost(sessionId)
-        && request.resource.data.hostUid == resource.data.hostUid
-        && request.resource.data.code == resource.data.code;
-      allow delete: if isHost(sessionId);
-
-      match /questions/{questionId} {
-        allow read: if signedIn();
-        allow write: if isHost(sessionId);
-      }
-
-      match /answerKeys/{questionId} {
-        allow read, write: if isHost(sessionId);
-      }
+        && request.resource.data.id == roundId;
+      allow update, delete: if isRoundHost(roundId);
 
       match /players/{playerId} {
         allow read: if signedIn();
@@ -42,44 +50,59 @@ service cloud.firestore {
           && request.resource.data.id == request.auth.uid
           && request.resource.data.score == 0
           && request.resource.data.joinedAt == request.time
-          && request.resource.data.keys().hasOnly(['id', 'nickname', 'team', 'score', 'joinedAt'])
+          && request.resource.data.keys().hasOnly(['id', 'nickname', 'score', 'joinedAt'])
           && request.resource.data.nickname is string
           && request.resource.data.nickname.size() > 0
-          && request.resource.data.nickname.size() <= 20
-          && request.resource.data.team is string
-          && request.resource.data.team.size() > 0
-          && request.resource.data.team.size() <= 20;
-        allow update: if isHost(sessionId) || (
+          && request.resource.data.nickname.size() <= 20;
+        allow update: if isRoundHost(roundId) || (
           signedIn()
           && playerId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'team'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname'])
           && request.resource.data.nickname is string
           && request.resource.data.nickname.size() > 0
           && request.resource.data.nickname.size() <= 20
-          && request.resource.data.team is string
-          && request.resource.data.team.size() > 0
-          && request.resource.data.team.size() <= 20
         );
-        allow delete: if isHost(sessionId);
+        allow delete: if isRoundHost(roundId);
+      }
+    }
+
+    match /questions/{questionCode} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if googleUser()
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.code == questionCode
+        && request.resource.data.roundId is string
+        && isRoundHost(request.resource.data.roundId);
+      allow update: if isQuestionHost(questionCode)
+        && request.resource.data.hostUid == resource.data.hostUid
+        && request.resource.data.code == resource.data.code
+        && isRoundHost(request.resource.data.roundId);
+      allow delete: if isQuestionHost(questionCode);
+
+      match /private/answerKey {
+        allow read, write: if isQuestionHost(questionCode);
       }
 
       match /answers/{answerId} {
-        allow read: if isHost(sessionId) || (
+        allow read: if isQuestionHost(questionCode) || (
           signedIn() && resource.data.studentUid == request.auth.uid
         );
         allow create: if signedIn()
           && request.resource.data.studentUid == request.auth.uid
-          && answerId == request.auth.uid + '_' + request.resource.data.questionId
-          && request.resource.data.keys().hasOnly(['id', 'studentUid', 'questionId', 'selectedIndex', 'awarded', 'submittedAt'])
+          && answerId == request.resource.data.roundId + '_' + request.auth.uid
           && request.resource.data.id == answerId
-          && request.resource.data.selectedIndex is int
-          && request.resource.data.selectedIndex >= 0
-          && request.resource.data.selectedIndex <= 3
+          && request.resource.data.roundId == question(questionCode).roundId
+          && question(questionCode).isOpen == true
+          && request.resource.data.selections is list
+          && request.resource.data.selections.size() > 0
+          && request.resource.data.selections.size() <= 8
+          && request.resource.data.selections.toSet().size() == request.resource.data.selections.size()
+          && request.resource.data.selections.toSet().hasOnly([0, 1, 2, 3, 4, 5, 6, 7])
           && request.resource.data.awarded == false
           && request.resource.data.submittedAt == request.time
-          && session(sessionId).isQuestionOpen == true
-          && session(sessionId).currentQuestionId == request.resource.data.questionId;
-        allow update, delete: if isHost(sessionId);
+          && request.resource.data.keys().hasOnly(['id', 'studentUid', 'roundId', 'selections', 'awarded', 'submittedAt']);
+        allow update, delete: if isQuestionHost(questionCode);
       }
     }
   }

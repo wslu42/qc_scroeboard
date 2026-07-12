@@ -20,12 +20,25 @@
   - `config/scoreboard`：目前啟用的全域計分板 round
   - `scoreboardRounds/{roundId}`：計分板版本與講師
   - `scoreboardRounds/{roundId}/players`：跨 Session 累積的暱稱及個人總分
+  - `scoreboardRounds/{roundId}/multiplierUses`：每位學生、每個 Session 的限定倍率 token
   - `questions/{code}`：題目代碼、Session／Question 編號、開關狀態及公布答案
   - `questions/{code}/private/answerKey`：只有題目講師可讀的正確組合
   - `questions/{code}/answers`：學生在該 round 的一次性多選作答
 - Firebase Hosting：部署 `dist/`，所有非靜態路徑 rewrite 至 `index.html`
 
-`firestore.rules` 強制學生只能建立自己的 player 與 answer，不能修改分數、題目、答案或開關狀態。完全符合正確答案組合才得 1,000 分；關題時由講師端批次結算，同一 round、同一題、同一 UID 只能送出及計分一次。
+`firestore.rules` 強制學生只能建立自己的 player、answer 與一次性倍率 token，不能修改分數、題目、答案或開關狀態。同一 round、同一題、同一 UID 只能送出及計分一次。
+
+### 信心倍率
+
+學生送出前選擇倍率，預設為 ×1；倍率同時影響答對加分與答錯扣分：
+
+| 倍率 | 答對 | 答錯 | Session 限制 |
+| --- | ---: | ---: | --- |
+| ×0.5 | +500 | −250 | 每個 Session 一次 |
+| ×1 | +1,000 | −500 | 不限次 |
+| ×1.5 | +1,500 | −750 | 每個 Session 一次 |
+
+`0S1Q01` 與 `0S1Q02` 同屬 S1，共用同一組限定倍率；進入 S2 或開始新的 scoreboard round 時重新計算。倍率 token 在送出答案時消耗，不論答對或答錯。學生公布後會看到自己的答案、正確答案、使用倍率與本題得分。
 
 Firebase Web config 位於 `src/firebase.ts`，它是瀏覽器端公開識別資訊，不是管理員密鑰。專案內不得加入 service-account JSON、private key 或其他後端憑證。
 

@@ -13,6 +13,7 @@ export type QuestionActivity = {
   code: string
   hostUid: string
   sessionNumber: number
+  sessionKey: string
   questionNumber: number
   roundId: string
   isOpen: boolean
@@ -21,8 +22,10 @@ export type QuestionActivity = {
 }
 export type ScoreboardConfig = { activeRoundId: string; hostUid: string }
 export type Player = { id: string; nickname: string; score: number; joinedAt?: Timestamp }
-export type Answer = { id: string; studentUid: string; roundId: string; selections: number[]; awarded: boolean }
+export type Multiplier = 0.5 | 1 | 1.5
+export type Answer = { id: string; studentUid: string; roundId: string; sessionKey: string; selections: number[]; multiplier: Multiplier; awarded: boolean; points?: number }
 export type AnswerKey = { correctOptions: number[] }
+export type MultiplierUsage = { usedHalf: boolean; usedBoost: boolean }
 
 const CODE_KEY = 'qc-scoreboard-question-code-v1'
 const NICKNAME_KEY = 'qc-scoreboard-nickname-v1'
@@ -39,7 +42,7 @@ export function isValidQuestionCode(value: string) {
 export function parseQuestionCode(value: string) {
   const code = normalizeCode(value)
   const match = /^0S(\d)Q(\d{2})$/.exec(code)
-  return match ? { code, sessionNumber: Number(match[1]), questionNumber: Number(match[2]) } : null
+  return match ? { code, sessionNumber: Number(match[1]), sessionKey: `S${match[1]}`, questionNumber: Number(match[2]) } : null
 }
 
 export function getStoredQuestionCode() {
@@ -165,6 +168,26 @@ export function useQuestionAnswers(codeValue: string, roundId: string, enabled: 
   return answers
 }
 
+function multiplierTokenId(uid: string, sessionKey: string, multiplier: Multiplier) {
+  const kind = multiplier === 0.5 ? 'half' : 'boost'
+  return `${uid}_${sessionKey}_${kind}`
+}
+
+export function useMultiplierUsage(roundId: string, uid: string | undefined, sessionKey: string) {
+  const [usage, setUsage] = useState<MultiplierUsage>({ usedHalf: false, usedBoost: false })
+  useEffect(() => {
+    if (!roundId || !uid || !sessionKey) { setUsage({ usedHalf: false, usedBoost: false }); return }
+    const halfId = multiplierTokenId(uid, sessionKey, 0.5)
+    const boostId = multiplierTokenId(uid, sessionKey, 1.5)
+    let half = false, boost = false
+    const publish = () => setUsage({ usedHalf: half, usedBoost: boost })
+    const unsubscribeHalf = onSnapshot(doc(db, 'scoreboardRounds', roundId, 'multiplierUses', halfId), snapshot => { half = snapshot.exists(); publish() })
+    const unsubscribeBoost = onSnapshot(doc(db, 'scoreboardRounds', roundId, 'multiplierUses', boostId), snapshot => { boost = snapshot.exists(); publish() })
+    return () => { unsubscribeHalf(); unsubscribeBoost() }
+  }, [roundId, sessionKey, uid])
+  return usage
+}
+
 async function ensureScoreboard(user: User) {
   const configReference = doc(db, 'config', 'scoreboard')
   const configSnapshot = await getDoc(configReference)
@@ -238,13 +261,29 @@ export async function joinQuestion(codeValue: string, nicknameValue: string) {
   return code
 }
 
-export async function submitAnswer(codeValue: string, roundId: string, selectionsValue: number[], uid: string) {
+export async function submitAnswer(codeValue: string, roundId: string, sessionKey: string, selectionsValue: number[], multiplier: Multiplier, uid: string) {
   const code = normalizeCode(codeValue)
   const selections = [...new Set(selectionsValue)].sort((a, b) => a - b)
   if (!selections.length || selections.some(value => value < 0 || value > 7)) throw new Error('請至少選擇一個 A–H 選項。')
-  await setDoc(doc(db, 'questions', code, 'answers', `${roundId}_${uid}`), {
-    id: `${roundId}_${uid}`, studentUid: uid, roundId, selections, awarded: false, submittedAt: serverTimestamp(),
+  if (![0.5, 1, 1.5].includes(multiplier)) throw new Error('無效的信心倍率。')
+  const answerId = `${roundId}_${uid}`
+  const batch = writeBatch(db)
+  batch.set(doc(db, 'questions', code, 'answers', answerId), {
+    id: answerId, studentUid: uid, roundId, sessionKey, selections, multiplier, awarded: false, submittedAt: serverTimestamp(),
   })
+  if (multiplier !== 1) {
+    const tokenId = multiplierTokenId(uid, sessionKey, multiplier)
+    batch.set(doc(db, 'scoreboardRounds', roundId, 'multiplierUses', tokenId), {
+      id: tokenId,
+      studentUid: uid,
+      sessionKey,
+      kind: multiplier === 0.5 ? 'half' : 'boost',
+      questionCode: code,
+      answerId,
+      createdAt: serverTimestamp(),
+    })
+  }
+  await batch.commit()
 }
 
 export async function setQuestionOpen(codeValue: string, isOpen: boolean) {
@@ -270,10 +309,11 @@ export async function closeQuestionAndScore(codeValue: string) {
   batch.update(doc(db, 'questions', code), { isOpen: false, revealedOptions: correctOptions, updatedAt: serverTimestamp() })
   pending.forEach(answerDocument => {
     const answer = answerDocument.data() as Answer
-    batch.update(answerDocument.ref, { awarded: true })
-    if (arraysEqual([...answer.selections].sort((a, b) => a - b), correctOptions)) {
-      batch.update(doc(db, 'scoreboardRounds', question.roundId, 'players', answer.studentUid), { score: increment(1000) })
-    }
+    const multiplier = answer.multiplier ?? 1
+    const isCorrect = arraysEqual([...answer.selections].sort((a, b) => a - b), correctOptions)
+    const points = (isCorrect ? 1000 : -500) * multiplier
+    batch.update(answerDocument.ref, { awarded: true, points })
+    batch.update(doc(db, 'scoreboardRounds', question.roundId, 'players', answer.studentUid), { score: increment(points) })
   })
   await batch.commit()
 }

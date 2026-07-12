@@ -64,6 +64,25 @@ service cloud.firestore {
         );
         allow delete: if isRoundHost(roundId);
       }
+
+      match /multiplierUses/{tokenId} {
+        allow get: if signedIn();
+        allow list: if false;
+        allow create: if signedIn()
+          && request.resource.data.studentUid == request.auth.uid
+          && request.resource.data.kind in ['half', 'boost']
+          && tokenId == request.auth.uid + '_' + request.resource.data.sessionKey + '_' + request.resource.data.kind
+          && request.resource.data.id == tokenId
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.keys().hasOnly(['id', 'studentUid', 'sessionKey', 'kind', 'questionCode', 'answerId', 'createdAt'])
+          && getAfter(/databases/$(database)/documents/questions/$(request.resource.data.questionCode)/answers/$(request.resource.data.answerId)).data.studentUid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/questions/$(request.resource.data.questionCode)/answers/$(request.resource.data.answerId)).data.sessionKey == request.resource.data.sessionKey
+          && (
+            (request.resource.data.kind == 'half' && getAfter(/databases/$(database)/documents/questions/$(request.resource.data.questionCode)/answers/$(request.resource.data.answerId)).data.multiplier == 0.5)
+            || (request.resource.data.kind == 'boost' && getAfter(/databases/$(database)/documents/questions/$(request.resource.data.questionCode)/answers/$(request.resource.data.answerId)).data.multiplier == 1.5)
+          );
+        allow update, delete: if false;
+      }
     }
 
     match /questions/{questionCode} {
@@ -93,15 +112,22 @@ service cloud.firestore {
           && answerId == request.resource.data.roundId + '_' + request.auth.uid
           && request.resource.data.id == answerId
           && request.resource.data.roundId == question(questionCode).roundId
+          && request.resource.data.sessionKey == question(questionCode).sessionKey
           && question(questionCode).isOpen == true
           && request.resource.data.selections is list
           && request.resource.data.selections.size() > 0
           && request.resource.data.selections.size() <= 8
           && request.resource.data.selections.toSet().size() == request.resource.data.selections.size()
           && request.resource.data.selections.toSet().hasOnly([0, 1, 2, 3, 4, 5, 6, 7])
+          && request.resource.data.multiplier in [0.5, 1, 1.5]
           && request.resource.data.awarded == false
           && request.resource.data.submittedAt == request.time
-          && request.resource.data.keys().hasOnly(['id', 'studentUid', 'roundId', 'selections', 'awarded', 'submittedAt']);
+          && request.resource.data.keys().hasOnly(['id', 'studentUid', 'roundId', 'sessionKey', 'selections', 'multiplier', 'awarded', 'submittedAt'])
+          && (
+            request.resource.data.multiplier == 1
+            || (request.resource.data.multiplier == 0.5 && existsAfter(/databases/$(database)/documents/scoreboardRounds/$(request.resource.data.roundId)/multiplierUses/$(request.auth.uid + '_' + request.resource.data.sessionKey + '_half')))
+            || (request.resource.data.multiplier == 1.5 && existsAfter(/databases/$(database)/documents/scoreboardRounds/$(request.resource.data.roundId)/multiplierUses/$(request.auth.uid + '_' + request.resource.data.sessionKey + '_boost')))
+          );
         allow update, delete: if isQuestionHost(questionCode);
       }
     }

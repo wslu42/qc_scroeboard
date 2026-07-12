@@ -7,7 +7,8 @@ import {
   getStoredQuestionCode, isValidQuestionCode, joinQuestion, normalizeCode,
   prepareQuestion, setQuestionOpen, signInAsHost, signOutHost,
   startNewScoreboardRound, submitAnswer, useAnswerKey, useFirebaseUser,
-  useQuestion, useQuestionAnswers, useScoreboard, useStudentAnswer,
+  useMultiplierUsage, useQuestion, useQuestionAnswers, useScoreboard, useStudentAnswer,
+  type Multiplier,
 } from './gameStore'
 
 type Route = '/join' | '/play' | '/host' | '/scoreboard'
@@ -61,6 +62,15 @@ function OptionCheckboxes({ selected, onChange, disabled = false, legend = '選�
   </fieldset>
 }
 
+function ConfidenceSelector({ multiplier, onChange, usedHalf, usedBoost, disabled }: { multiplier: Multiplier; onChange: (value: Multiplier) => void; usedHalf: boolean; usedBoost: boolean; disabled: boolean }) {
+  const choices: { value: Multiplier; name: string; correct: string; wrong: string; used: boolean }[] = [
+    { value: 0.5, name: '保守', correct: '+500', wrong: '−250', used: usedHalf },
+    { value: 1, name: '一般', correct: '+1,000', wrong: '−500', used: false },
+    { value: 1.5, name: '加權', correct: '+1,500', wrong: '−750', used: usedBoost },
+  ]
+  return <section className="confidence-panel"><div className="confidence-heading"><div><span className="eyebrow">CONFIDENCE</span><h3>選擇信心倍率</h3></div><span className="session-limit">每個 Session 限定</span></div><p className="confidence-help">倍率會同時影響答對加分與答錯扣分。×0.5、×1.5 在每個 Session 各限用一次，送出答案時即消耗。</p><div className="confidence-grid">{choices.map(choice => <button aria-pressed={multiplier === choice.value} className={`confidence-choice ${multiplier === choice.value ? 'active' : ''}`} disabled={disabled || choice.used} key={choice.value} onClick={() => onChange(choice.value)} type="button"><strong>×{choice.value}</strong><span>{choice.name}</span><small>答對 {choice.correct} · 答錯 {choice.wrong}</small>{choice.value !== 1 && <em>{choice.used ? '本 Session 已使用' : '本 Session 可用 1 次'}</em>}</button>)}</div></section>
+}
+
 function JoinPage() {
   const { user } = useFirebaseUser()
   const [deepLinkCode] = useState(getCodeFromHash)
@@ -109,20 +119,26 @@ function PlayPage() {
   const question = questionState.question
   const player = scoreboard.players.find(item => item.id === user?.uid)
   const answer = useStudentAnswer(code, question?.roundId ?? '', user?.uid)
+  const multiplierUsage = useMultiplierUsage(question?.roundId ?? '', user?.uid, question?.sessionKey ?? '')
   const [selections, setSelections] = useState<number[]>([])
+  const [multiplier, setMultiplier] = useState<Multiplier>(1)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => setSelections(answer?.selections ?? []), [answer, code])
+  useEffect(() => {
+    if ((multiplier === 0.5 && multiplierUsage.usedHalf) || (multiplier === 1.5 && multiplierUsage.usedBoost)) setMultiplier(1)
+  }, [multiplier, multiplierUsage.usedBoost, multiplierUsage.usedHalf])
 
   if (authLoading || questionState.loading || scoreboard.loading) return <main className="center-page page-shell"><LoadingPanel /></main>
   if (!code || !user || !question || !player || question.roundId !== scoreboard.config?.activeRoundId) return <main className="center-page page-shell"><section className="panel empty-state"><span className="big-icon">👋</span><h1>先進入題目吧</h1><p>掃描 QR code，或輸入題目代碼與暱稱。</p><a className="primary-button" href="#/join">前往加入</a></section></main>
 
   const roundId = question.roundId
+  const sessionKey = question.sessionKey
   const userId = user.uid
   const revealed = question.revealedOptions ?? []
   const correct = Boolean(answer && revealed.length && answer.selections.length === revealed.length && [...answer.selections].sort().every((value, index) => value === [...revealed].sort()[index]))
   async function sendAnswer() {
-    try { setSubmitting(true); setError(''); await submitAnswer(code, roundId, selections, userId) }
+    try { setSubmitting(true); setError(''); await submitAnswer(code, roundId, sessionKey, selections, multiplier, userId) }
     catch (reason) { setError(reason instanceof Error ? reason.message : '送出失敗，請再試一次。') }
     finally { setSubmitting(false) }
   }
@@ -130,9 +146,10 @@ function PlayPage() {
   return <main className="play-page page-shell"><div className="page-topline"><div><span className="eyebrow">QUESTION · {code}</span><h1>嗨，{player.nickname}</h1></div><div className="score-chip"><span>總分</span><strong>{player.score.toLocaleString()}</strong></div></div>
     <section className="panel question-card"><div className="question-meta"><span>Session {question.sessionNumber} · Question {String(question.questionNumber).padStart(2, '0')}</span><StatusPill open={question.isOpen} /></div><h2 className="slide-prompt">題目請見投影片<br /><small>See slides for the question</small></h2>
       <OptionCheckboxes disabled={!question.isOpen || Boolean(answer)} onChange={setSelections} revealedOptions={answer ? revealed : []} selected={selections} legend="選擇所有正確答案 Select all that apply" />
-      <button className="primary-button submit-answer" disabled={!question.isOpen || Boolean(answer) || !selections.length || submitting} onClick={() => void sendAnswer()}>{submitting ? '送出中…' : answer ? '答案已送出' : `送出答案${selections.length ? ` (${selections.map(value => optionLabels[value]).join('、')})` : ''}`}</button>
+      <ConfidenceSelector disabled={!question.isOpen || Boolean(answer)} multiplier={answer?.multiplier ?? multiplier} onChange={setMultiplier} usedBoost={multiplierUsage.usedBoost} usedHalf={multiplierUsage.usedHalf} />
+      <button className="primary-button submit-answer" disabled={!question.isOpen || Boolean(answer) || !selections.length || submitting} onClick={() => void sendAnswer()}>{submitting ? '送出中…' : answer ? '答案已送出' : `以 ×${multiplier} 送出答案${selections.length ? ` (${selections.map(value => optionLabels[value]).join('、')})` : ''}`}</button>
       <div className="answer-feedback" aria-live="polite">{error || (!question.isOpen && !answer && '等待講師開放題目…')}{!error && question.isOpen && !answer && '送出前可以自由勾選或取消；送出後無法修改。'}</div>
-      {answer && <section className={`answer-status ${revealed.length ? (correct ? 'success' : 'incorrect') : 'pending'}`} aria-live="polite"><div className="answer-status-heading"><span>{revealed.length ? (correct ? '✓' : '!') : '…'}</span><div><small>作答狀況</small><h3>{revealed.length ? (correct ? '完全答對！+1,000 分' : '答案不完全正確') : '已送出，等待公布'}</h3></div></div><dl><div><dt>你的答案</dt><dd>{answer.selections.map(value => optionLabels[value]).join('、')}</dd></div>{revealed.length > 0 && <div><dt>正確答案</dt><dd>{revealed.map(value => optionLabels[value]).join('、')}</dd></div>}</dl></section>}
+      {answer && <section className={`answer-status ${revealed.length ? (correct ? 'success' : 'incorrect') : 'pending'}`} aria-live="polite"><div className="answer-status-heading"><span>{revealed.length ? (correct ? '✓' : '!') : '…'}</span><div><small>作答狀況</small><h3>{revealed.length ? (correct ? '完全答對！' : '答案不完全正確') : '已送出，等待公布'}</h3></div></div><dl><div><dt>你的答案</dt><dd>{answer.selections.map(value => optionLabels[value]).join('、')}</dd></div><div><dt>信心倍率</dt><dd>×{answer.multiplier ?? 1}</dd></div>{revealed.length > 0 && <><div><dt>正確答案</dt><dd>{revealed.map(value => optionLabels[value]).join('、')}</dd></div><div><dt>本題得分</dt><dd className={(answer.points ?? 0) >= 0 ? 'positive-points' : 'negative-points'}>{answer.points === undefined ? '結算中…' : `${answer.points > 0 ? '+' : ''}${answer.points.toLocaleString()}`}</dd></div></>}</dl></section>}
     </section>
   </main>
 }

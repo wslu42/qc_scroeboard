@@ -87,6 +87,22 @@ input,select { width:100%; height:54px; border:1px solid #d4d6d4; border-radius:
 .answer-status dl>div { display:flex; justify-content:space-between; gap:20px; padding-top:9px; border-top:1px solid rgba(36,50,61,.1); }
 .answer-status dt { color:var(--muted); font-size:13px; }
 .answer-status dd { margin:0; color:var(--ink); font-weight:800; }
+.positive-points { color:#315c4d !important; }
+.negative-points { color:#9a433b !important; }
+.confidence-panel { margin:24px 0 16px; padding:20px; border:1px solid var(--line); border-radius:17px; background:#f8f8f6; }
+.confidence-heading { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.confidence-heading h3 { margin:3px 0 0; font-size:19px; }
+.session-limit { padding:6px 9px; border-radius:999px; color:var(--orange-dark); background:var(--orange-soft); font-size:10px; font-weight:800; }
+.confidence-help { margin:12px 0 16px; color:var(--muted); font-size:12px; line-height:1.65; }
+.confidence-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.confidence-choice { min-height:112px; padding:13px 10px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; border:2px solid var(--line); border-radius:13px; color:var(--ink); background:#fff; cursor:pointer; }
+.confidence-choice:hover:not(:disabled) { border-color:var(--blue); }
+.confidence-choice.active { border-color:var(--blue); background:var(--blue-soft); color:var(--blue-dark); }
+.confidence-choice strong { font-size:21px; }
+.confidence-choice span { font-size:12px; font-weight:800; }
+.confidence-choice small { color:var(--muted); font-size:9px; }
+.confidence-choice em { margin-top:4px; color:var(--orange-dark); font-size:9px; font-style:normal; font-weight:800; }
+.confidence-choice:disabled { cursor:not-allowed; opacity:.48; }
 .host-builder-grid { display:grid; grid-template-columns:1fr 300px; gap:22px; margin-bottom:22px; }
 .question-builder,.qr-card { padding:clamp(24px,4vw,38px); }
 .question-builder h2,.qr-card h2 { margin-bottom:20px; }
@@ -108,4 +124,6 @@ input,select { width:100%; height:54px; border:1px solid #d4d6d4; border-radius:
   .host-builder-grid { grid-template-columns:1fr; }
   .multi-option-grid { grid-template-columns:repeat(2,1fr); }
   .eight-options { grid-template-columns:repeat(2,1fr); }
+  .confidence-grid { grid-template-columns:1fr; }
+  .confidence-choice { min-height:86px; }
 }

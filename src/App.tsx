@@ -43,7 +43,7 @@ function useRoute() {
 
 function Header({ route }: { route: Route }) {
   return <header className="site-header">
-    <a className="brand" href="#/join" aria-label="QuickClass 首頁"><span className="brand-mark">Q</span><span>QuickClass</span></a>
+    <a className="brand" href="#/join" aria-label="QC scoreboard 首頁"><span className="brand-mark">QC</span><span>QC scoreboard</span></a>
     <nav aria-label="主要導覽">{routes.map(item => <a className={route === item ? 'active' : ''} href={`#${item}`} key={item}>{routeLabels[item]}</a>)}</nav>
   </header>
 }
@@ -220,7 +220,7 @@ function ScoreboardPage() {
 function App() {
   const route = useRoute()
   useEffect(() => { void ensureAnonymousUser().catch(() => undefined) }, [])
-  return <div className="app"><Header route={route} />{route === '/join' && <JoinPage />}{route === '/play' && <PlayPage />}{route === '/host' && <HostPage />}{route === '/scoreboard' && <ScoreboardPage />}<footer>QuickClass · Firebase live classroom</footer></div>
+  return <div className="app"><Header route={route} />{route === '/join' && <JoinPage />}{route === '/play' && <PlayPage />}{route === '/host' && <HostPage />}{route === '/scoreboard' && <ScoreboardPage />}<footer>QC scoreboard · Firebase live classroom</footer></div>
 }
 
 export default App

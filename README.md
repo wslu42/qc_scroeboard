@@ -1,4 +1,4 @@
-# QuickClass Scoreboard
+# QC scoreboard
 
 以 Vite、React、TypeScript 與 Firebase 製作的跨裝置課堂單選搶答系統。學生使用匿名身分加入，講師使用 Google 登入建立及控制自己的課堂；題目、作答與排行榜透過 Cloud Firestore 即時同步。
 

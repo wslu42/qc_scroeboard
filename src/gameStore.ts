@@ -23,7 +23,7 @@ export type QuestionActivity = {
 export type ScoreboardConfig = { activeRoundId: string; hostUid: string }
 export type Player = { id: string; nickname: string; score: number; joinedAt?: Timestamp }
 export type Multiplier = 0.5 | 1 | 1.5
-export type Answer = { id: string; studentUid: string; roundId: string; sessionKey: string; selections: number[]; multiplier: Multiplier; awarded: boolean; points?: number }
+export type Answer = { id: string; studentUid: string; roundId: string; sessionKey: string; selections: number[]; multiplier: Multiplier; scoringMode?: 'standard' | 'confidence'; awarded: boolean; points?: number }
 export type AnswerKey = { correctOptions: number[] }
 export type MultiplierUsage = { usedHalf: boolean; usedBoost: boolean }
 
@@ -267,29 +267,16 @@ export async function joinQuestion(codeValue: string, nicknameValue: string) {
   return code
 }
 
-export async function submitAnswer(codeValue: string, roundId: string, sessionKey: string, selectionsValue: number[], multiplier: Multiplier, uid: string) {
+export async function submitAnswer(codeValue: string, roundId: string, sessionKey: string, selectionsValue: number[], uid: string) {
   const code = normalizeCode(codeValue)
   const selections = [...new Set(selectionsValue)].sort((a, b) => a - b)
   if (!selections.length || selections.some(value => value < 0 || value > 7)) throw new Error('請至少選擇一個 A–H 選項。')
   if (!/^S\d$/.test(sessionKey)) throw new Error('題目的 Session 設定無效，請講師重新儲存題目。')
-  if (![0.5, 1, 1.5].includes(multiplier)) throw new Error('無效的信心倍率。')
   const answerId = `${roundId}_${uid}`
   const batch = writeBatch(db)
   batch.set(doc(db, 'questions', code, 'answers', answerId), {
-    id: answerId, studentUid: uid, roundId, sessionKey, selections, multiplier, awarded: false, submittedAt: serverTimestamp(),
+    id: answerId, studentUid: uid, roundId, sessionKey, selections, multiplier: 1, scoringMode: 'standard', awarded: false, submittedAt: serverTimestamp(),
   })
-  if (multiplier !== 1) {
-    const tokenId = multiplierTokenId(uid, sessionKey, multiplier)
-    batch.set(doc(db, 'scoreboardRounds', roundId, 'multiplierUses', tokenId), {
-      id: tokenId,
-      studentUid: uid,
-      sessionKey,
-      kind: multiplier === 0.5 ? 'half' : 'boost',
-      questionCode: code,
-      answerId,
-      createdAt: serverTimestamp(),
-    })
-  }
   await batch.commit()
 }
 
@@ -316,9 +303,10 @@ export async function closeQuestionAndScore(codeValue: string) {
   batch.update(doc(db, 'questions', code), { isOpen: false, revealedOptions: correctOptions, updatedAt: serverTimestamp() })
   pending.forEach(answerDocument => {
     const answer = answerDocument.data() as Answer
-    const multiplier = answer.multiplier ?? 1
     const isCorrect = arraysEqual([...answer.selections].sort((a, b) => a - b), correctOptions)
-    const points = (isCorrect ? 1000 : -500) * multiplier
+    const points = answer.scoringMode === 'standard'
+      ? (isCorrect ? 1000 : 0)
+      : (isCorrect ? 1000 : -500) * (answer.multiplier ?? 1)
     batch.update(answerDocument.ref, { awarded: true, points })
     batch.update(doc(db, 'scoreboardRounds', question.roundId, 'players', answer.studentUid), { score: increment(points) })
   })

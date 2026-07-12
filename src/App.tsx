@@ -60,7 +60,6 @@ function JoinPage() {
   const { user } = useFirebaseUser()
   const [code, setCode] = useState(() => getCodeFromHash() || getStoredSessionCode())
   const [nickname, setNickname] = useState('')
-  const [team, setTeam] = useState('藍隊')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const classroom = useClassroom(code, Boolean(user && code.length === 6))
@@ -73,7 +72,7 @@ function JoinPage() {
     if (!cleanName) { setError('請填寫暱稱。'); return }
     try {
       setBusy(true); setError('')
-      await joinClassroom(code, cleanName.slice(0, 20), team)
+      await joinClassroom(code, cleanName.slice(0, 20))
       window.location.hash = '/play'
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '加入失敗，請稍後再試。')
@@ -83,8 +82,8 @@ function JoinPage() {
   return <main className="join-layout page-shell">
     <section className="join-intro">
       <span className="eyebrow">LIVE CLASSROOM QUIZ</span><h1>準備好，<br />一起搶答！</h1>
-      <p>輸入課堂代碼、選擇隊伍，題目一開放就立即作答。</p>
-      {classroom.session && <div className="mini-scoreboard"><span>目前領先</span><strong>{leader?.team ?? '等待加入'}</strong><span>{classroom.players.length} 位玩家在線</span></div>}
+      <p>輸入課堂代碼與暱稱，題目一開放就立即作答。</p>
+      {classroom.session && <div className="mini-scoreboard"><span>目前領先</span><strong>{leader?.nickname ?? '等待加入'}</strong><span>{classroom.players.length} 位玩家在線</span></div>}
     </section>
     <section className="panel join-card">
       <div className="step-badge">01</div><h2>加入這場課堂</h2><p className="muted">向講師取得 6 碼課堂代碼。</p>
@@ -93,8 +92,6 @@ function JoinPage() {
         <input className="code-input" id="session-code" inputMode="text" maxLength={6} onChange={event => setCode(normalizeCode(event.target.value))} placeholder="例如：ABC234" value={code} />
         <label htmlFor="nickname">你的暱稱</label>
         <input autoComplete="nickname" id="nickname" maxLength={20} onChange={event => setNickname(event.target.value)} placeholder="例如：小明" value={nickname} />
-        <label htmlFor="team">選擇隊伍</label>
-        <select id="team" onChange={event => setTeam(event.target.value)} value={team}><option>藍隊</option><option>橘隊</option><option>綠隊</option><option>紫隊</option></select>
         {error && <p className="form-error" role="alert">{error}</p>}
         <button className="primary-button full" disabled={busy} type="submit">{busy ? '加入中…' : '加入並開始 →'}</button>
       </form>
@@ -117,7 +114,7 @@ function PlayPage() {
   const isCorrect = answer && correctIndex !== undefined && answer.selectedIndex === correctIndex
 
   if (authLoading || classroom.loading) return <main className="center-page page-shell"><LoadingPanel /></main>
-  if (!code || !user || !player || !classroom.session || !question) return <main className="center-page page-shell"><section className="panel empty-state"><span className="big-icon">👋</span><h1>先加入課堂吧</h1><p>輸入講師提供的課堂代碼、暱稱與隊伍。</p><a className="primary-button" href="#/join">前往加入</a></section></main>
+  if (!code || !user || !player || !classroom.session || !question) return <main className="center-page page-shell"><section className="panel empty-state"><span className="big-icon">👋</span><h1>先加入課堂吧</h1><p>輸入講師提供的課堂代碼與暱稱。</p><a className="primary-button" href="#/join">前往加入</a></section></main>
 
   async function chooseAnswer(index: number) {
     if (!user || !question) return
@@ -127,7 +124,7 @@ function PlayPage() {
   }
 
   return <main className="play-page page-shell">
-    <div className="page-topline"><div><span className="eyebrow">{player.team} · {code}</span><h1>嗨，{player.nickname}</h1></div><div className="score-chip"><span>目前分數</span><strong>{player.score.toLocaleString()}</strong></div></div>
+    <div className="page-topline"><div><span className="eyebrow">CLASSROOM · {code}</span><h1>嗨，{player.nickname}</h1></div><div className="score-chip"><span>目前分數</span><strong>{player.score.toLocaleString()}</strong></div></div>
     <section className="panel question-card">
       <div className="question-meta"><span>第 {classroom.session.currentQuestionIndex + 1} / {classroom.questions.length} 題</span><StatusPill open={classroom.session.isQuestionOpen} /></div>
       <h2>{question.prompt}</h2>
@@ -202,7 +199,6 @@ function ScoreboardPage() {
   const classroom = useClassroom(code, Boolean(user && code))
   const leaders = useMemo(() => [...classroom.players].sort((a, b) => b.score - a.score || a.nickname.localeCompare(b.nickname)), [classroom.players])
   const topScore = Math.max(leaders[0]?.score ?? 0, 1)
-  const teamTotals = useMemo(() => { const totals = new Map<string, number>(); classroom.players.forEach(player => totals.set(player.team, (totals.get(player.team) ?? 0) + player.score)); return [...totals.entries()].sort((a, b) => b[1] - a[1]) }, [classroom.players])
 
   function selectClassroom(event: FormEvent) {
     event.preventDefault(); const nextCode = normalizeCode(draftCode)
@@ -214,10 +210,9 @@ function ScoreboardPage() {
   if (classroom.loading || !classroom.session) return <main className="center-page page-shell"><LoadingPanel /></main>
 
   return <main className="scoreboard-page page-shell">
-    <div className="scoreboard-heading"><div><span className="eyebrow">LIVE SCOREBOARD · {code}</span><h1>課堂排行榜</h1></div><div className="live-indicator"><span /> 即時更新</div></div>
+    <div className="scoreboard-heading"><div><span className="eyebrow">LIVE SCOREBOARD · {code}</span><h1>個人排行榜</h1></div><div className="scoreboard-live"><div className="live-indicator"><span /> 即時更新</div><small>第 {classroom.session.currentQuestionIndex + 1} / {classroom.questions.length} 題</small><StatusPill open={classroom.session.isQuestionOpen} /></div></div>
     <div className="scoreboard-grid">
-      <section className="panel leaderboard">{leaders.length ? leaders.map((player, index) => <div className={`leader-row rank-${index + 1}`} key={player.id}><span className="rank">{index + 1}</span><span className="avatar">{player.nickname.slice(0, 1).toUpperCase()}</span><div className="leader-info"><strong>{player.nickname}</strong><small>{player.team}</small><div className="score-bar"><span style={{ width: `${Math.max(player.score / topScore * 100, 4)}%` }} /></div></div><strong className="leader-score">{player.score.toLocaleString()}</strong></div>) : <div className="waiting-players">等待學生加入…</div>}</section>
-      <aside className="panel team-board"><span className="eyebrow">TEAM TOTALS</span><h2>隊伍積分</h2>{teamTotals.map(([team, score], index) => <div className="team-row" key={team}><span className={`team-color color-${index}`} /><strong>{team}</strong><span>{score.toLocaleString()}</span></div>)}<div className="current-question"><span>目前題目</span><strong>{classroom.session.currentQuestionIndex + 1} / {classroom.questions.length}</strong><StatusPill open={classroom.session.isQuestionOpen} /></div></aside>
+      <section className="panel leaderboard">{leaders.length ? leaders.map((player, index) => <div className={`leader-row rank-${index + 1}`} key={player.id}><span className="rank">{index + 1}</span><span className="avatar">{player.nickname.slice(0, 1).toUpperCase()}</span><div className="leader-info"><strong>{player.nickname}</strong><div className="score-bar"><span style={{ width: `${Math.max(player.score / topScore * 100, 4)}%` }} /></div></div><strong className="leader-score">{player.score.toLocaleString()}</strong></div>) : <div className="waiting-players">等待學生加入…</div>}</section>
     </div>
   </main>
 }

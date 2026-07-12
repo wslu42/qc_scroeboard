@@ -127,8 +127,9 @@ export async function createClassroom(user: User) {
   return code
 }
 
-export async function joinClassroom(codeValue: string, nickname: string, team: string) {
+export async function joinClassroom(codeValue: string, nickname: string) {
   const code = normalizeCode(codeValue)
+  const team = '個人'
   const user = await ensureAnonymousUser()
   const sessionSnapshot = await getDoc(doc(db, 'sessions', code))
   if (!sessionSnapshot.exists()) throw new Error('找不到這個課堂代碼，請向講師確認。')

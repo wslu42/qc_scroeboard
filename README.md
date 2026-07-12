@@ -4,10 +4,10 @@
 
 ## 功能與路由
 
-- `#/join`：學生輸入 6 碼課堂代碼、暱稱及隊伍
+- `#/join`：學生輸入 6 碼課堂代碼與暱稱
 - `#/play`：回答目前開放的單選題，關題後查看答案與得分
 - `#/host`：Google 講師登入、建立課堂、開關及切換題目、查看統計
-- `#/scoreboard`：適合教室投影的個人與隊伍即時排行榜
+- `#/scoreboard`：適合教室投影的個人即時排行榜
 
 專案採 hash router。Firebase Hosting URL 例如 `https://qc-scoreboard-69c7b.web.app/#/host`；投影連結會帶入 `#/scoreboard?session=ABC234`，學生加入連結則是 `#/join?session=ABC234`。
 
@@ -20,7 +20,7 @@
   - `sessions/{code}`：講師、目前題目、開關狀態及已公布答案
   - `sessions/{code}/questions`：學生可讀的題目及選項
   - `sessions/{code}/answerKeys`：只有該課堂講師可讀的答案
-  - `sessions/{code}/players`：暱稱、隊伍及分數
+  - `sessions/{code}/players`：暱稱及個人分數（`team` 欄位暫留作向後相容）
   - `sessions/{code}/answers`：學生的一次性作答
 - Firebase Hosting：部署 `dist/`，所有非靜態路徑 rewrite 至 `index.html`
 
@@ -104,5 +104,6 @@ npm run deploy:firebase
 - 清除瀏覽器網站資料後，匿名學生會取得新的 UID，無法找回舊身分或分數。
 - Google 講師登入狀態與匿名學生身分都以 browser origin 為界；切換網域會建立不同登入狀態。
 - 目前題目為建立課堂時寫入的四題 seed，尚未提供題庫編輯器。
+- 第一版僅顯示個人積分；隊伍選擇與隊伍排行榜暫時隱藏。
 - 尚未啟用 App Check；正式公開並完成多裝置驗證後建議加入。
 - 沒有 Cloud Functions；計分由已通過 Security Rules 授權的講師裝置在關題時執行，因此講師必須保持連線直到結算完成。

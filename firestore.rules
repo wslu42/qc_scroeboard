@@ -63,8 +63,9 @@ service cloud.firestore {
           && playerId == request.auth.uid
           && request.resource.data.id == request.auth.uid
           && request.resource.data.score == 0
+          && request.resource.data.tieBreakTimeMs == 0
           && request.resource.data.joinedAt == request.time
-          && request.resource.data.keys().hasOnly(['id', 'nickname', 'score', 'joinedAt'])
+          && request.resource.data.keys().hasOnly(['id', 'nickname', 'score', 'tieBreakTimeMs', 'joinedAt'])
           && request.resource.data.nickname is string
           && request.resource.data.nickname.size() > 0
           && request.resource.data.nickname.size() <= 20;

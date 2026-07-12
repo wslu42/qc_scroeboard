@@ -9,11 +9,18 @@ import {
   startNewScoreboardRound, submitAnswer, useAnswerKey, useFirebaseUser,
   useQuestion, useQuestionAnswers, useScoreboard, useStudentAnswer,
 } from './gameStore'
+import type { Player } from './gameStore'
 
 type Route = '/join' | '/play' | '/host' | '/scoreboard'
 const routes: Route[] = ['/join', '/play', '/host', '/scoreboard']
 const labels: Record<Route, string> = { '/join': '加入', '/play': '作答', '/host': '講師台', '/scoreboard': '排行榜' }
 const optionLabels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+
+function comparePlayers(first: Player, second: Player) {
+  return second.score - first.score
+    || (first.tieBreakTimeMs ?? Number.MAX_SAFE_INTEGER) - (second.tieBreakTimeMs ?? Number.MAX_SAFE_INTEGER)
+    || first.nickname.localeCompare(second.nickname)
+}
 
 function getRoute(): Route {
   const value = window.location.hash.slice(1).split('?')[0]
@@ -71,7 +78,7 @@ function JoinPage() {
   const attemptedAutoJoin = useRef(false)
   const questionState = useQuestion(code, Boolean(user && isValidQuestionCode(code)))
   const scoreboard = useScoreboard(Boolean(user))
-  const leader = [...scoreboard.players].sort((a, b) => b.score - a.score)[0]
+  const leader = [...scoreboard.players].sort(comparePlayers)[0]
 
   async function join(codeValue: string, nicknameValue: string) {
     setBusy(true); setError('')
@@ -182,11 +189,11 @@ function HostPage() {
 function ScoreboardPage() {
   const { user } = useFirebaseUser()
   const scoreboard = useScoreboard(Boolean(user))
-  const leaders = useMemo(() => [...scoreboard.players].sort((a, b) => b.score - a.score || a.nickname.localeCompare(b.nickname)), [scoreboard.players])
+  const leaders = useMemo(() => [...scoreboard.players].sort(comparePlayers), [scoreboard.players])
   const topScore = Math.max(leaders[0]?.score ?? 0, 1)
   if (scoreboard.loading) return <main className="center-page page-shell"><LoadingPanel /></main>
   if (!scoreboard.config) return <main className="center-page page-shell"><section className="panel empty-state"><h1>尚未建立計分板</h1><p>請先由講師建立第一道題目。</p></section></main>
-  return <main className="scoreboard-page page-shell"><div className="scoreboard-heading"><div><span className="eyebrow">GLOBAL LIVE SCOREBOARD</span><h1>個人總積分</h1></div><div className="live-indicator"><span /> 即時更新</div></div><div className="scoreboard-grid"><section className="panel leaderboard">{leaders.length ? leaders.map((player, index) => <div className={`leader-row rank-${index + 1}`} key={player.id}><span className="rank">{index + 1}</span><span className="avatar">{player.nickname.slice(0, 1).toUpperCase()}</span><div className="leader-info"><strong>{player.nickname}</strong><div className="score-bar"><span style={{ width: `${Math.max(player.score / topScore * 100, 4)}%` }} /></div></div><strong className="leader-score">{player.score.toLocaleString()}</strong></div>) : <div className="waiting-players">等待學生加入…</div>}</section></div></main>
+  return <main className="scoreboard-page page-shell"><div className="scoreboard-heading"><div><span className="eyebrow">GLOBAL LIVE SCOREBOARD</span><h1>個人總積分</h1><p className="muted">同分時依累計答對作答時間較短者優先</p></div><div className="live-indicator"><span /> 即時更新</div></div><div className="scoreboard-grid"><section className="panel leaderboard">{leaders.length ? leaders.map((player, index) => <div className={`leader-row rank-${index + 1}`} key={player.id}><span className="rank">{index + 1}</span><span className="avatar">{player.nickname.slice(0, 1).toUpperCase()}</span><div className="leader-info"><strong>{player.nickname}</strong><div className="score-bar"><span style={{ width: `${Math.max(player.score / topScore * 100, 4)}%` }} /></div></div><strong className="leader-score">{player.score.toLocaleString()}</strong></div>) : <div className="waiting-players">等待學生加入…</div>}</section></div></main>
 }
 
 function App() {

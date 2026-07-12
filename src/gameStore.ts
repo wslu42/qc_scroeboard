@@ -18,12 +18,13 @@ export type QuestionActivity = {
   roundId: string
   isOpen: boolean
   revealedOptions: number[]
+  openedAt?: Timestamp
   createdAt?: Timestamp
 }
 export type ScoreboardConfig = { activeRoundId: string; hostUid: string }
-export type Player = { id: string; nickname: string; score: number; joinedAt?: Timestamp }
+export type Player = { id: string; nickname: string; score: number; tieBreakTimeMs?: number; joinedAt?: Timestamp }
 export type Multiplier = 0.5 | 1 | 1.5
-export type Answer = { id: string; studentUid: string; roundId: string; sessionKey: string; selections: number[]; multiplier: Multiplier; scoringMode?: 'standard' | 'confidence'; awarded: boolean; points?: number }
+export type Answer = { id: string; studentUid: string; roundId: string; sessionKey: string; selections: number[]; multiplier: Multiplier; scoringMode?: 'standard' | 'confidence'; awarded: boolean; points?: number; submittedAt?: Timestamp; responseTimeMs?: number }
 export type AnswerKey = { correctOptions: number[] }
 export type MultiplierUsage = { usedHalf: boolean; usedBoost: boolean }
 
@@ -262,7 +263,7 @@ export async function joinQuestion(codeValue: string, nicknameValue: string) {
   const playerReference = doc(db, 'scoreboardRounds', question.roundId, 'players', user.uid)
   const playerSnapshot = await getDoc(playerReference)
   if (playerSnapshot.exists()) await updateDoc(playerReference, { nickname })
-  else await setDoc(playerReference, { id: user.uid, nickname, score: 0, joinedAt: serverTimestamp() })
+  else await setDoc(playerReference, { id: user.uid, nickname, score: 0, tieBreakTimeMs: 0, joinedAt: serverTimestamp() })
   storeQuestionCode(code); storeNickname(nickname)
   return code
 }
@@ -281,7 +282,10 @@ export async function submitAnswer(codeValue: string, roundId: string, sessionKe
 }
 
 export async function setQuestionOpen(codeValue: string, isOpen: boolean) {
-  await updateDoc(doc(db, 'questions', normalizeCode(codeValue)), { isOpen, updatedAt: serverTimestamp() })
+  const updates = isOpen
+    ? { isOpen: true, revealedOptions: [], openedAt: serverTimestamp(), updatedAt: serverTimestamp() }
+    : { isOpen: false, updatedAt: serverTimestamp() }
+  await updateDoc(doc(db, 'questions', normalizeCode(codeValue)), updates)
 }
 
 function arraysEqual(first: number[], second: number[]) {
@@ -295,6 +299,7 @@ export async function closeQuestionAndScore(codeValue: string) {
   ])
   if (!questionSnapshot.exists() || !keySnapshot.exists()) throw new Error('找不到題目或答案設定。')
   const question = questionSnapshot.data() as QuestionActivity
+  const openedAtMs = question.openedAt?.toMillis()
   const correctOptions = [...(keySnapshot.data().correctOptions as number[])].sort((a, b) => a - b)
   const answersSnapshot = await getDocs(query(collection(db, 'questions', code, 'answers'), where('roundId', '==', question.roundId)))
   const pending = answersSnapshot.docs.filter(item => item.data().awarded !== true)
@@ -307,8 +312,19 @@ export async function closeQuestionAndScore(codeValue: string) {
     const points = answer.scoringMode === 'standard'
       ? (isCorrect ? 1000 : 0)
       : (isCorrect ? 1000 : -500) * (answer.multiplier ?? 1)
-    batch.update(answerDocument.ref, { awarded: true, points })
-    batch.update(doc(db, 'scoreboardRounds', question.roundId, 'players', answer.studentUid), { score: increment(points) })
+    const submittedAtMs = answer.submittedAt?.toMillis()
+    const responseTimeMs = openedAtMs !== undefined && submittedAtMs !== undefined
+      ? Math.max(0, submittedAtMs - openedAtMs)
+      : undefined
+    batch.update(answerDocument.ref, {
+      awarded: true,
+      points,
+      ...(responseTimeMs !== undefined ? { responseTimeMs } : {}),
+    })
+    batch.update(doc(db, 'scoreboardRounds', question.roundId, 'players', answer.studentUid), {
+      score: increment(points),
+      ...(isCorrect && responseTimeMs !== undefined ? { tieBreakTimeMs: increment(responseTimeMs) } : {}),
+    })
   })
   await batch.commit()
 }

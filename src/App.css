@@ -70,7 +70,23 @@ input,select { width:100%; height:54px; border:1px solid #d4d6d4; border-radius:
 .multi-option.checked { border-color:var(--blue); background:var(--blue-soft); color:var(--blue-dark); }
 .multi-option input { width:20px; height:20px; padding:0; accent-color:var(--blue); }
 .multi-option span { font-size:21px; font-weight:800; }
+.multi-option small { font-size:10px; font-weight:800; }
+.multi-option.revealed-correct { border-color:#5b8b71; background:#e4f0e8; color:#315c4d; opacity:1; }
+.multi-option.revealed-wrong { border-color:#b5655e; background:#f4e4e1; color:#8c3f39; opacity:1; }
 .submit-answer { width:100%; margin-top:4px; }
+.answer-status { margin-top:22px; padding:20px; border:1px solid var(--line); border-radius:16px; background:#f5f5f2; }
+.answer-status.success { border-color:#83a792; background:#e9f2ec; }
+.answer-status.incorrect { border-color:#c59288; background:#f6eae7; }
+.answer-status-heading { display:flex; align-items:center; gap:13px; }
+.answer-status-heading>span { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; border-radius:50%; background:var(--blue-soft); color:var(--blue-dark); font-size:20px; font-weight:900; }
+.answer-status.success .answer-status-heading>span { background:#cfe3d6; color:#315c4d; }
+.answer-status.incorrect .answer-status-heading>span { background:#ecd1cc; color:#8c3f39; }
+.answer-status-heading small { color:var(--muted); }
+.answer-status-heading h3 { margin:2px 0 0; font-size:18px; }
+.answer-status dl { margin:18px 0 0; display:grid; gap:9px; }
+.answer-status dl>div { display:flex; justify-content:space-between; gap:20px; padding-top:9px; border-top:1px solid rgba(36,50,61,.1); }
+.answer-status dt { color:var(--muted); font-size:13px; }
+.answer-status dd { margin:0; color:var(--ink); font-weight:800; }
 .host-builder-grid { display:grid; grid-template-columns:1fr 300px; gap:22px; margin-bottom:22px; }
 .question-builder,.qr-card { padding:clamp(24px,4vw,38px); }
 .question-builder h2,.qr-card h2 { margin-bottom:20px; }

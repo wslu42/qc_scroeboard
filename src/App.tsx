@@ -46,13 +46,18 @@ function LoadingPanel({ text = '連線中…' }: { text?: string }) {
   return <section className="panel empty-state"><span className="spinner" /><h2>{text}</h2></section>
 }
 
-function OptionCheckboxes({ selected, onChange, disabled = false, legend = '選擇答案' }: { selected: number[]; onChange: (next: number[]) => void; disabled?: boolean; legend?: string }) {
+function OptionCheckboxes({ selected, onChange, disabled = false, legend = '選擇答案', revealedOptions = [] }: { selected: number[]; onChange: (next: number[]) => void; disabled?: boolean; legend?: string; revealedOptions?: number[] }) {
   function toggle(index: number) {
     onChange(selected.includes(index) ? selected.filter(value => value !== index) : [...selected, index].sort((a, b) => a - b))
   }
   return <fieldset className="option-fieldset" disabled={disabled}>
     <legend>{legend}</legend>
-    <div className="multi-option-grid">{optionLabels.map((label, index) => <label className={`multi-option ${selected.includes(index) ? 'checked' : ''}`} key={label}><input checked={selected.includes(index)} onChange={() => toggle(index)} type="checkbox" /><span>{label}</span></label>)}</div>
+    <div className="multi-option-grid">{optionLabels.map((label, index) => {
+      const isSelected = selected.includes(index)
+      const isRevealedCorrect = revealedOptions.includes(index)
+      const isRevealedWrong = Boolean(revealedOptions.length && isSelected && !isRevealedCorrect)
+      return <label className={`multi-option ${isSelected ? 'checked' : ''} ${isRevealedCorrect ? 'revealed-correct' : ''} ${isRevealedWrong ? 'revealed-wrong' : ''}`} key={label}><input checked={isSelected} onChange={() => toggle(index)} type="checkbox" /><span>{label}</span>{isRevealedCorrect && <small>正確</small>}{isRevealedWrong && <small>誤選</small>}</label>
+    })}</div>
   </fieldset>
 }
 
@@ -124,9 +129,10 @@ function PlayPage() {
 
   return <main className="play-page page-shell"><div className="page-topline"><div><span className="eyebrow">QUESTION · {code}</span><h1>嗨，{player.nickname}</h1></div><div className="score-chip"><span>總分</span><strong>{player.score.toLocaleString()}</strong></div></div>
     <section className="panel question-card"><div className="question-meta"><span>Session {question.sessionNumber} · Question {String(question.questionNumber).padStart(2, '0')}</span><StatusPill open={question.isOpen} /></div><h2 className="slide-prompt">題目請見投影片<br /><small>See slides for the question</small></h2>
-      <OptionCheckboxes disabled={!question.isOpen || Boolean(answer)} onChange={setSelections} selected={selections} legend="選擇所有正確答案 Select all that apply" />
+      <OptionCheckboxes disabled={!question.isOpen || Boolean(answer)} onChange={setSelections} revealedOptions={answer ? revealed : []} selected={selections} legend="選擇所有正確答案 Select all that apply" />
       <button className="primary-button submit-answer" disabled={!question.isOpen || Boolean(answer) || !selections.length || submitting} onClick={() => void sendAnswer()}>{submitting ? '送出中…' : answer ? '答案已送出' : `送出答案${selections.length ? ` (${selections.map(value => optionLabels[value]).join('、')})` : ''}`}</button>
-      <div className="answer-feedback" aria-live="polite">{error || (!question.isOpen && !answer && '等待講師開放題目…')}{!error && question.isOpen && !answer && '送出前可以自由勾選或取消；送出後無法修改。'}{!error && answer && !revealed.length && '已送出！等待講師公布答案。'}{!error && answer && revealed.length > 0 && (correct ? '完全答對！獲得 1,000 分 🎉' : `正確答案：${revealed.map(value => optionLabels[value]).join('、')}`)}</div>
+      <div className="answer-feedback" aria-live="polite">{error || (!question.isOpen && !answer && '等待講師開放題目…')}{!error && question.isOpen && !answer && '送出前可以自由勾選或取消；送出後無法修改。'}</div>
+      {answer && <section className={`answer-status ${revealed.length ? (correct ? 'success' : 'incorrect') : 'pending'}`} aria-live="polite"><div className="answer-status-heading"><span>{revealed.length ? (correct ? '✓' : '!') : '…'}</span><div><small>作答狀況</small><h3>{revealed.length ? (correct ? '完全答對！+1,000 分' : '答案不完全正確') : '已送出，等待公布'}</h3></div></div><dl><div><dt>你的答案</dt><dd>{answer.selections.map(value => optionLabels[value]).join('、')}</dd></div>{revealed.length > 0 && <div><dt>正確答案</dt><dd>{revealed.map(value => optionLabels[value]).join('、')}</dd></div>}</dl></section>}
     </section>
   </main>
 }

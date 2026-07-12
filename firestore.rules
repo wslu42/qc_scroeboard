@@ -26,6 +26,20 @@ service cloud.firestore {
       return signedIn() && round(roundId).hostUid == request.auth.uid;
     }
 
+    function validSessionKey(questionCode, sessionKey) {
+      let number = question(questionCode).sessionNumber;
+      return (number == 0 && sessionKey == 'S0')
+        || (number == 1 && sessionKey == 'S1')
+        || (number == 2 && sessionKey == 'S2')
+        || (number == 3 && sessionKey == 'S3')
+        || (number == 4 && sessionKey == 'S4')
+        || (number == 5 && sessionKey == 'S5')
+        || (number == 6 && sessionKey == 'S6')
+        || (number == 7 && sessionKey == 'S7')
+        || (number == 8 && sessionKey == 'S8')
+        || (number == 9 && sessionKey == 'S9');
+    }
+
     match /config/scoreboard {
       allow read: if signedIn();
       allow create: if googleUser()
@@ -112,7 +126,7 @@ service cloud.firestore {
           && answerId == request.resource.data.roundId + '_' + request.auth.uid
           && request.resource.data.id == answerId
           && request.resource.data.roundId == question(questionCode).roundId
-          && request.resource.data.sessionKey == question(questionCode).sessionKey
+          && validSessionKey(questionCode, request.resource.data.sessionKey)
           && question(questionCode).isOpen == true
           && request.resource.data.selections is list
           && request.resource.data.selections.size() > 0

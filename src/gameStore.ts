@@ -104,7 +104,13 @@ export function useQuestion(codeValue: string, enabled = true) {
     if (!isValidQuestionCode(code) || !enabled) { setQuestion(null); setLoading(false); return }
     setLoading(true); setError('')
     return onSnapshot(doc(db, 'questions', code), snapshot => {
-      setQuestion(snapshot.exists() ? snapshot.data() as QuestionActivity : null)
+      if (snapshot.exists()) {
+        const data = snapshot.data() as QuestionActivity
+        const fallbackSessionKey = parseQuestionCode(code)?.sessionKey ?? ''
+        setQuestion({ ...data, sessionKey: data.sessionKey ?? fallbackSessionKey })
+      } else {
+        setQuestion(null)
+      }
       if (!snapshot.exists()) setError('找不到這個題目代碼。')
       setLoading(false)
     }, reason => { setError(reason.message); setLoading(false) })
@@ -265,6 +271,7 @@ export async function submitAnswer(codeValue: string, roundId: string, sessionKe
   const code = normalizeCode(codeValue)
   const selections = [...new Set(selectionsValue)].sort((a, b) => a - b)
   if (!selections.length || selections.some(value => value < 0 || value > 7)) throw new Error('請至少選擇一個 A–H 選項。')
+  if (!/^S\d$/.test(sessionKey)) throw new Error('題目的 Session 設定無效，請講師重新儲存題目。')
   if (![0.5, 1, 1.5].includes(multiplier)) throw new Error('無效的信心倍率。')
   const answerId = `${roundId}_${uid}`
   const batch = writeBatch(db)

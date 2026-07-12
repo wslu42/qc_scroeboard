@@ -1,35 +1,56 @@
-# QuickClass Scoreboard MVP
+# QuickClass Scoreboard
 
-以 Vite、React 與 TypeScript 製作的課堂單選搶答 MVP。第一版不連接 Firebase 或任何後端，適合在單一瀏覽器中用多個分頁示範學生作答、講師控題與即時排行榜。
+以 Vite、React、TypeScript 與 Firebase 製作的跨裝置課堂單選搶答系統。學生使用匿名身分加入，講師使用 Google 登入建立及控制自己的課堂；題目、作答與排行榜透過 Cloud Firestore 即時同步。
 
 ## 功能與路由
 
-- `#/join`：學生輸入暱稱並選擇隊伍
-- `#/play`：作答目前開放的單選題、查看得分與答案揭曉
-- `#/host`：講師開關題目、切換題目、查看作答統計及重設 demo
-- `#/scoreboard`：適合教室投影的個人與隊伍排行榜
+- `#/join`：學生輸入 6 碼課堂代碼、暱稱及隊伍
+- `#/play`：回答目前開放的單選題，關題後查看答案與得分
+- `#/host`：Google 講師登入、建立課堂、開關及切換題目、查看統計
+- `#/scoreboard`：適合教室投影的個人與隊伍即時排行榜
 
-專案採用 **hash router**，所以 URL 的頁面部分位於 `#` 之後。例如本機是 `http://localhost:5173/qc_scroeboard/#/host`，GitHub Pages 是 `https://<帳號>.github.io/qc_scroeboard/#/host`。這能讓 GitHub Pages 直接重新整理任何頁面時仍由同一份 `index.html` 處理，不需要額外的 `404.html` fallback。
+專案採 hash router。Firebase Hosting URL 例如 `https://qc-scoreboard-69c7b.web.app/#/host`；投影連結會帶入 `#/scoreboard?session=ABC234`，學生加入連結則是 `#/join?session=ABC234`。
+
+## Firebase 架構
+
+- Firebase Authentication
+  - 講師：Google provider
+  - 學生／未登入投影裝置：Anonymous provider
+- Cloud Firestore
+  - `sessions/{code}`：講師、目前題目、開關狀態及已公布答案
+  - `sessions/{code}/questions`：學生可讀的題目及選項
+  - `sessions/{code}/answerKeys`：只有該課堂講師可讀的答案
+  - `sessions/{code}/players`：暱稱、隊伍及分數
+  - `sessions/{code}/answers`：學生的一次性作答
+- Firebase Hosting：部署 `dist/`，所有非靜態路徑 rewrite 至 `index.html`
+
+`firestore.rules` 強制學生只能建立自己的 player 與 answer，不能修改分數、題目、答案或課堂狀態。講師只能控制 `hostUid` 等於自己 Firebase UID 的課堂。關題時由講師端批次標記作答並更新正確學生的分數；同一作答不會重複計分。
+
+Firebase Web config 位於 `src/firebase.ts`，它是瀏覽器端公開識別資訊，不是管理員密鑰。專案內不得加入 service-account JSON、private key 或其他後端憑證。
+
+## Firebase Console 必要設定
+
+Firebase project：`qc-scoreboard-69c7b`
+
+1. Firestore `(default)`：Standard、Native mode、`us-east4`。
+2. Authentication → Sign-in method：啟用 Google 與 Anonymous。
+3. Authentication → Settings → Authorized domains：Firebase Hosting 預設網域會自動加入；如果也從 GitHub Pages 測試 Google 登入，需加入 `wslu42.github.io`。
+4. 部署前使用本 repository 的 `firestore.rules`，不要保留允許任意讀寫的測試規則。
 
 ## 本機啟動
 
-需要 Node.js 20.19+ 或 22.12+（Vite 8 的版本需求）。
+需要 Node.js 20.19+ 或 22.12+。
 
 ```bash
 npm install
 npm run dev
 ```
 
-Vite 設定的 production base 是 `/qc_scroeboard/`。開發伺服器會顯示實際本機 URL；通常可直接開啟 `http://localhost:5173/qc_scroeboard/#/join`。
+本機通常為 `http://localhost:5173/#/join`。`localhost` 預設是 Firebase Auth 的授權網域。
 
-建議 demo 流程：
+由於 Firebase Auth 的 browser-local 登入狀態會在同一 origin 的分頁間同步，不適合在同一個瀏覽器 profile 用多分頁同時模擬講師與不同學生。請使用不同瀏覽器 profile、無痕視窗，或真實的不同裝置測試各種角色。
 
-1. 開啟 `#/host` 作為講師控制台。
-2. 另開一個分頁到 `#/join`，輸入學生資料後進入 `#/play`。
-3. 如需模擬另一位學生，開啟新的瀏覽器分頁（不要複製已完成加入的分頁 session），再從 `#/join` 加入。
-4. 再開 `#/scoreboard`，從講師台開放題目、在學生分頁作答，觀察各頁同步更新。
-
-## 檢查與 production build
+## 檢查與 build
 
 ```bash
 npm run typecheck
@@ -38,28 +59,50 @@ npm run build
 npm run preview
 ```
 
-`npm run build` 會先執行 TypeScript 型別檢查，再輸出靜態檔案至 `dist/`。預覽網址同樣會包含 `/qc_scroeboard/` 子路徑。
+`npm run build` 會產生適用 Firebase Hosting 根路徑的 `dist/`。如需保留 GitHub Pages 版本，使用：
 
-## 部署到 GitHub Pages
+```bash
+npm run build:pages
+```
 
-`vite.config.ts` 已將 `base` 設為 repository 對應的 `/qc_scroeboard/`，repository 也已包含 `.github/workflows/deploy-pages.yml`。啟用方式：
+該指令會將 Vite base 設為 `/qc_scroeboard/`；現有 GitHub Pages workflow 已使用此指令。
 
-1. 在 repository 的 **Settings → Pages → Build and deployment → Source** 選擇 **GitHub Actions**。
-2. 將此變更合併至 `main`，或在 Actions 頁面手動執行 **Deploy to GitHub Pages** workflow。
-3. Workflow 會執行 `npm ci`、`npm run build`，上傳 `dist` 並發佈至 Pages。
+## 部署 Firebase
 
-也可使用既有的靜態站台部署流程，只要將 `dist/` 的內容發佈到 GitHub Pages 即可。部署後入口為 `https://wslu42.github.io/qc_scroeboard/#/join`（實際是否可公開存取取決於 repository Pages 設定與權限）。
+先安裝或更新官方 Firebase CLI，然後登入：
 
-## Local/mock 同步方式與限制
+```bash
+npm install -g firebase-tools
+firebase login
+firebase use qc-scoreboard-69c7b
+```
 
-共享遊戲狀態保存在 `localStorage`，每次更新同時透過 `BroadcastChannel` 通知其他分頁，並以瀏覽器的 `storage` event 作為相容機制。每個學生的身分 ID 則保存在該分頁的 `sessionStorage`，方便同一瀏覽器用多分頁模擬多位學生。
+先部署規則並確認沒有錯誤：
 
-此機制的限制：
+```bash
+firebase deploy --only firestore:rules,firestore:indexes
+```
 
-- 只會在**同一個 origin、同一個瀏覽器 profile** 的分頁間同步；不同裝置、瀏覽器或無痕/一般視窗不會共享。
-- 沒有伺服器、登入、權限控管或防作弊；任何人都可開啟講師台，也可從開發者工具修改本機資料。
-- 接近同一瞬間的多分頁寫入沒有後端交易保證，極端情況可能發生最後寫入者覆蓋前一筆狀態。
-- 清除網站資料會移除玩家、作答與分數。預設會提供四位 mock 玩家，講師台可重設 demo。
-- Google Fonts 無法連線時會自動使用系統字型，不影響功能。
+再建置及部署 Hosting：
 
-本專案沒有 Firebase SDK、API key 或其他秘密資訊。
+```bash
+npm run build
+firebase deploy --only hosting
+```
+
+也可以一次執行：
+
+```bash
+npm run deploy:firebase
+```
+
+部署後請至少以一台講師裝置與兩台學生裝置驗證：Google 登入、建立課堂、加入、開題、單次作答、關題結算、切題及排行榜。
+
+## 第一版限制
+
+- 同一課堂單題結算上限為 200 位學生，避免超過 Firestore 單次 batch write 限制。
+- 清除瀏覽器網站資料後，匿名學生會取得新的 UID，無法找回舊身分或分數。
+- Google 講師登入狀態與匿名學生身分都以 browser origin 為界；切換網域會建立不同登入狀態。
+- 目前題目為建立課堂時寫入的四題 seed，尚未提供題庫編輯器。
+- 尚未啟用 App Check；正式公開並完成多裝置驗證後建議加入。
+- 沒有 Cloud Functions；計分由已通過 Security Rules 授權的講師裝置在關題時執行，因此講師必須保持連線直到結算完成。

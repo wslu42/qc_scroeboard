@@ -6,11 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:pages": "tsc -b && vite build --base=/qc_scroeboard/",
+    "deploy:firebase": "npm run build && firebase deploy",
     "typecheck": "tsc -b --pretty false",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
+    "firebase": "^12.16.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

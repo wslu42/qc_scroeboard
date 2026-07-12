@@ -1,0 +1,86 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function session(sessionId) {
+      return get(/databases/$(database)/documents/sessions/$(sessionId)).data;
+    }
+
+    function isHost(sessionId) {
+      return signedIn() && session(sessionId).hostUid == request.auth.uid;
+    }
+
+    match /sessions/{sessionId} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.code == sessionId;
+      allow update: if isHost(sessionId)
+        && request.resource.data.hostUid == resource.data.hostUid
+        && request.resource.data.code == resource.data.code;
+      allow delete: if isHost(sessionId);
+
+      match /questions/{questionId} {
+        allow read: if signedIn();
+        allow write: if isHost(sessionId);
+      }
+
+      match /answerKeys/{questionId} {
+        allow read, write: if isHost(sessionId);
+      }
+
+      match /players/{playerId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && playerId == request.auth.uid
+          && request.resource.data.id == request.auth.uid
+          && request.resource.data.score == 0
+          && request.resource.data.joinedAt == request.time
+          && request.resource.data.keys().hasOnly(['id', 'nickname', 'team', 'score', 'joinedAt'])
+          && request.resource.data.nickname is string
+          && request.resource.data.nickname.size() > 0
+          && request.resource.data.nickname.size() <= 20
+          && request.resource.data.team is string
+          && request.resource.data.team.size() > 0
+          && request.resource.data.team.size() <= 20;
+        allow update: if isHost(sessionId) || (
+          signedIn()
+          && playerId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'team'])
+          && request.resource.data.nickname is string
+          && request.resource.data.nickname.size() > 0
+          && request.resource.data.nickname.size() <= 20
+          && request.resource.data.team is string
+          && request.resource.data.team.size() > 0
+          && request.resource.data.team.size() <= 20
+        );
+        allow delete: if isHost(sessionId);
+      }
+
+      match /answers/{answerId} {
+        allow read: if isHost(sessionId) || (
+          signedIn() && resource.data.studentUid == request.auth.uid
+        );
+        allow create: if signedIn()
+          && request.resource.data.studentUid == request.auth.uid
+          && answerId == request.auth.uid + '_' + request.resource.data.questionId
+          && request.resource.data.keys().hasOnly(['id', 'studentUid', 'questionId', 'selectedIndex', 'awarded', 'submittedAt'])
+          && request.resource.data.id == answerId
+          && request.resource.data.selectedIndex is int
+          && request.resource.data.selectedIndex >= 0
+          && request.resource.data.selectedIndex <= 3
+          && request.resource.data.awarded == false
+          && request.resource.data.submittedAt == request.time
+          && session(sessionId).isQuestionOpen == true
+          && session(sessionId).currentQuestionId == request.resource.data.questionId;
+        allow update, delete: if isHost(sessionId);
+      }
+    }
+  }
+}

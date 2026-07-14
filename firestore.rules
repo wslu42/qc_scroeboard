@@ -26,6 +26,10 @@ service cloud.firestore {
       return signedIn() && round(roundId).hostUid == request.auth.uid;
     }
 
+    function validQuestionCode(questionCode) {
+      return questionCode.matches('[A-Z0-9]S[0-9]Q[0-9][0-9]');
+    }
+
     function validSessionKey(questionCode, sessionKey) {
       let number = question(questionCode).sessionNumber;
       return (number == 0 && sessionKey == 'S0')
@@ -53,6 +57,7 @@ service cloud.firestore {
     match /scoreboardRounds/{roundId} {
       allow read: if signedIn();
       allow create: if googleUser()
+        && validQuestionCode(questionCode)
         && request.resource.data.hostUid == request.auth.uid
         && request.resource.data.id == roundId;
       allow update, delete: if isRoundHost(roundId);

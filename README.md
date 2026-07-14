@@ -4,12 +4,12 @@
 
 ## 功能與路由
 
-- `#/join`：掃描 QR code 或輸入 `0S1Q01` 格式的題目代碼；首次輸入暱稱
+- `#/join`：掃描 QR code 或輸入 `#S#Q##` 格式的題目代碼；首次輸入暱稱
 - `#/play`：勾選 A–H 多個答案並明確送出，關題後查看正確組合
 - `#/host`：Google 講師登入、設定題目代碼與正確組合、產生 QR code、開關及結算題目；下方的 host-only archive 可查看該講師帳號擁有的所有計分輪次、學生、題目答案與作答紀錄
 - `#/scoreboard`：跨所有 Session 共用的 active 個人總積分排行榜
 
-專案採 hash router。講師控制台位於 `https://qc-scoreboard-69c7b.web.app/#/host`；題目 QR code 連結形式為 `#/join?code=0S1Q01`。格式固定為 `0S#Q##`：Session 是一位數、Question 是兩位數。
+專案採 hash router。講師控制台位於 `https://qc-scoreboard-69c7b.web.app/#/host`；題目 QR code 連結形式例如 `#/join?code=AS1Q02`。格式為 `#S#Q##`：第一碼可為英文字母 A–Z 或數字 0–9，Session 是一位數，Question 是兩位數。例如 `AS1Q02`、`7S3Q12`，既有的 `0S1Q01` 仍然有效。
 
 ## Firebase 架構
 
@@ -104,7 +104,7 @@ firebase deploy --only hosting
 npm run deploy:firebase
 ```
 
-部署後請至少以一台講師裝置與兩台學生裝置驗證：Google 登入、設定 `0S1Q01`、QR 加入、A–H 多選、單次送出、關題結算與全域排行榜。
+部署後請至少以一台講師裝置與兩台學生裝置驗證：Google 登入、設定 `AS1Q02`、QR 加入、A–H 多選、單次送出、關題結算與全域排行榜。
 
 ## 第一版限制
 

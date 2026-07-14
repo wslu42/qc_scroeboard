@@ -40,12 +40,12 @@ export function normalizeCode(value: string) {
 }
 
 export function isValidQuestionCode(value: string) {
-  return /^0S\dQ\d{2}$/.test(normalizeCode(value))
+  return /^[A-Z0-9]S\dQ\d{2}$/.test(normalizeCode(value))
 }
 
 export function parseQuestionCode(value: string) {
   const code = normalizeCode(value)
-  const match = /^0S(\d)Q(\d{2})$/.exec(code)
+  const match = /^[A-Z0-9]S(\d)Q(\d{2})$/.exec(code)
   return match ? { code, sessionNumber: Number(match[1]), sessionKey: `S${match[1]}`, questionNumber: Number(match[2]) } : null
 }
 
@@ -278,7 +278,7 @@ export async function startNewScoreboardRound(user: User) {
 export async function prepareQuestion(user: User, codeValue: string, options: number[]) {
   if (user.isAnonymous) throw new Error('Sign in with your instructor Google account first.')
   const parsed = parseQuestionCode(codeValue)
-  if (!parsed) throw new Error('Question codes must follow the format 0S1Q01.')
+  if (!parsed) throw new Error('Use #S#Q##: the first character may be A–Z or 0–9, and the remaining # characters are digits (for example, AS1Q02).')
   const correctOptions = [...new Set(options)].sort((a, b) => a - b)
   if (!correctOptions.length) throw new Error('Select at least one correct answer.')
   const config = await ensureScoreboard(user)
@@ -301,7 +301,7 @@ export async function prepareQuestion(user: User, codeValue: string, options: nu
 
 export async function joinQuestion(codeValue: string, nicknameValue: string) {
   const code = normalizeCode(codeValue)
-  if (!isValidQuestionCode(code)) throw new Error('Question codes must follow the format 0S1Q01.')
+  if (!isValidQuestionCode(code)) throw new Error('Use #S#Q##: the first character may be A–Z or 0–9, and the remaining # characters are digits (for example, AS1Q02).')
   const nickname = nicknameValue.trim().slice(0, 20)
   if (!nickname) throw new Error('Enter a nickname.')
   const user = await ensureAnonymousUser()

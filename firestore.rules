@@ -57,7 +57,6 @@ service cloud.firestore {
     match /scoreboardRounds/{roundId} {
       allow read: if signedIn();
       allow create: if googleUser()
-        && validQuestionCode(questionCode)
         && request.resource.data.hostUid == request.auth.uid
         && request.resource.data.id == roundId;
       allow update, delete: if isRoundHost(roundId);
@@ -97,6 +96,7 @@ service cloud.firestore {
       allow list: if googleUser()
         && resource.data.hostUid == request.auth.uid;
       allow create: if googleUser()
+        && validQuestionCode(questionCode)
         && request.resource.data.hostUid == request.auth.uid
         && request.resource.data.code == questionCode
         && request.resource.data.roundId is string

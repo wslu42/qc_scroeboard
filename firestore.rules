@@ -107,9 +107,11 @@ service cloud.firestore {
       }
 
       match /answers/{answerId} {
-        allow read: if isQuestionHost(questionCode) || (
-          signedIn() && resource.data.studentUid == request.auth.uid
+        allow get: if isQuestionHost(questionCode) || (
+          signedIn()
+          && answerId == question(questionCode).roundId + '_' + request.auth.uid
         );
+        allow list: if isQuestionHost(questionCode);
         allow create: if signedIn()
           && request.resource.data.studentUid == request.auth.uid
           && answerId == request.resource.data.roundId + '_' + request.auth.uid

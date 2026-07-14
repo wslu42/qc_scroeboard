@@ -23,10 +23,13 @@ export type QuestionActivity = {
 }
 export type ScoreboardConfig = { activeRoundId: string; hostUid: string }
 export type Player = { id: string; nickname: string; score: number; tieBreakTimeMs?: number; joinedAt?: Timestamp }
+export type ScoreboardRound = { id: string; hostUid: string; createdAt?: Timestamp }
 export type Multiplier = 0.5 | 1 | 1.5
 export type Answer = { id: string; studentUid: string; roundId: string; sessionKey: string; selections: number[]; multiplier: Multiplier; scoringMode?: 'standard' | 'confidence'; awarded: boolean; points?: number; submittedAt?: Timestamp; responseTimeMs?: number }
 export type AnswerKey = { correctOptions: number[] }
 export type MultiplierUsage = { usedHalf: boolean; usedBoost: boolean }
+export type HostRoundRecord = ScoreboardRound & { players: Player[] }
+export type HostQuestionRecord = QuestionActivity & { answerKey: number[]; answers: Answer[] }
 
 const CODE_KEY = 'qc-scoreboard-question-code-v1'
 const NICKNAME_KEY = 'qc-scoreboard-nickname-v1'
@@ -173,6 +176,56 @@ export function useQuestionAnswers(codeValue: string, roundId: string, enabled: 
     return onSnapshot(answerQuery, snapshot => setAnswers(snapshot.docs.map(item => item.data() as Answer)))
   }, [code, roundId, enabled])
   return answers
+}
+
+export function useHostRecords(hostUid: string | undefined, enabled: boolean) {
+  const [rounds, setRounds] = useState<HostRoundRecord[]>([])
+  const [questions, setQuestions] = useState<HostQuestionRecord[]>([])
+  const [loading, setLoading] = useState(enabled)
+  const [error, setError] = useState('')
+  const [revision, setRevision] = useState(0)
+  useEffect(() => {
+    if (!enabled || !hostUid) { setRounds([]); setQuestions([]); setLoading(false); return }
+    let cancelled = false
+    setLoading(true); setError('')
+    async function load() {
+      try {
+        const [roundsSnapshot, questionsSnapshot] = await Promise.all([
+          getDocs(query(collection(db, 'scoreboardRounds'), where('hostUid', '==', hostUid))),
+          getDocs(query(collection(db, 'questions'), where('hostUid', '==', hostUid))),
+        ])
+        const [roundRecords, questionRecords] = await Promise.all([
+          Promise.all(roundsSnapshot.docs.map(async roundDocument => ({
+            ...(roundDocument.data() as ScoreboardRound),
+            id: roundDocument.id,
+            players: (await getDocs(collection(db, 'scoreboardRounds', roundDocument.id, 'players'))).docs.map(item => item.data() as Player),
+          }))),
+          Promise.all(questionsSnapshot.docs.map(async questionDocument => {
+            const [keySnapshot, answersSnapshot] = await Promise.all([
+              getDoc(doc(db, 'questions', questionDocument.id, 'private', 'answerKey')),
+              getDocs(collection(db, 'questions', questionDocument.id, 'answers')),
+            ])
+            return {
+              ...(questionDocument.data() as QuestionActivity),
+              code: questionDocument.id,
+              answerKey: keySnapshot.exists() ? (keySnapshot.data() as AnswerKey).correctOptions : [],
+              answers: answersSnapshot.docs.map(item => item.data() as Answer),
+            }
+          })),
+        ])
+        if (cancelled) return
+        setRounds(roundRecords.sort((first, second) => (second.createdAt?.toMillis() ?? 0) - (first.createdAt?.toMillis() ?? 0)))
+        setQuestions(questionRecords.sort((first, second) => first.code.localeCompare(second.code)))
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to load class records.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [enabled, hostUid, revision])
+  return { rounds, questions, loading, error, refresh: () => setRevision(value => value + 1) }
 }
 
 function multiplierTokenId(uid: string, sessionKey: string, multiplier: Multiplier) {

@@ -7,7 +7,7 @@ import {
   getStoredQuestionCode, isValidQuestionCode, joinQuestion, normalizeCode,
   prepareQuestion, setQuestionOpen, signInAsHost, signOutHost,
   startNewScoreboardRound, submitAnswer, useAnswerKey, useFirebaseUser,
-  useQuestion, useQuestionAnswers, useScoreboard, useStudentAnswer,
+  useHostRecords, useQuestion, useQuestionAnswers, useScoreboard, useStudentAnswer,
 } from './gameStore'
 import type { Player } from './gameStore'
 
@@ -151,6 +151,27 @@ function useQrCode(url: string) {
   return dataUrl
 }
 
+function formatDate(timestamp?: { toDate: () => Date }) {
+  return timestamp?.toDate().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) ?? '—'
+}
+
+function HostRecordsPanel({ hostUid, activeRoundId }: { hostUid: string; activeRoundId?: string }) {
+  const records = useHostRecords(hostUid, true)
+  const playerNames = useMemo(() => new Map(records.rounds.flatMap(round => round.players.map(player => [`${round.id}:${player.id}`, player.nickname]))), [records.rounds])
+  const playerCount = records.rounds.reduce((total, round) => total + round.players.length, 0)
+  const answerCount = records.questions.reduce((total, question) => total + question.answers.length, 0)
+
+  return <section className="host-records" aria-labelledby="class-records-heading">
+    <div className="records-heading"><div><span className="eyebrow">HOST-ONLY ARCHIVE</span><h2 id="class-records-heading">Class records</h2><p>Review every scoreboard round, player, question key, and submitted answer owned by this instructor account.</p></div><button className="secondary-button" disabled={records.loading} onClick={records.refresh}>{records.loading ? 'Loading…' : 'Refresh records'}</button></div>
+    {records.error && <p className="form-error panel inline-error" role="alert">{records.error}</p>}
+    <div className="records-summary"><div className="panel"><span>Scoreboard rounds</span><strong>{records.rounds.length}</strong></div><div className="panel"><span>Player records</span><strong>{playerCount}</strong></div><div className="panel"><span>Question codes</span><strong>{records.questions.length}</strong></div><div className="panel"><span>Submitted answers</span><strong>{answerCount}</strong></div></div>
+    {records.loading ? <LoadingPanel text="Loading class records…" /> : <div className="records-columns">
+      <section><h3>Scoreboard rounds and players</h3>{records.rounds.length ? records.rounds.map(round => <details className="panel record-card" key={round.id}><summary><div><strong>{round.id === activeRoundId ? 'Active round' : 'Archived round'}</strong><small>{formatDate(round.createdAt)}</small></div><span>{round.players.length} {round.players.length === 1 ? 'player' : 'players'}</span></summary><div className="records-table-wrap"><table><thead><tr><th>Player</th><th>Player ID</th><th>Score</th><th>Correct-answer time</th><th>Joined</th></tr></thead><tbody>{round.players.length ? [...round.players].sort(comparePlayers).map(player => <tr key={player.id}><td><strong>{player.nickname}</strong></td><td><code>{player.id}</code></td><td>{player.score.toLocaleString('en-US')}</td><td>{player.tieBreakTimeMs === undefined ? '—' : `${(player.tieBreakTimeMs / 1000).toFixed(1)} sec`}</td><td>{formatDate(player.joinedAt)}</td></tr>) : <tr><td colSpan={5}>No players in this round.</td></tr>}</tbody></table></div></details>) : <div className="panel records-empty">No scoreboard rounds have been created.</div>}</section>
+      <section><h3>Questions, answer keys, and submissions</h3>{records.questions.length ? records.questions.map(question => <details className="panel record-card" key={question.code}><summary><div><strong>{question.code}</strong><small>{question.isOpen ? 'Open for answers' : 'Closed'} · Round {question.roundId}</small></div><span>{question.answers.length} {question.answers.length === 1 ? 'answer' : 'answers'}</span></summary><div className="question-record-meta"><span>Answer key</span><strong>{question.answerKey.length ? question.answerKey.map(value => optionLabels[value]).join(', ') : 'Not set'}</strong><span>Session {question.sessionNumber} · Question {String(question.questionNumber).padStart(2, '0')}</span></div><div className="records-table-wrap"><table><thead><tr><th>Player</th><th>Submitted answer</th><th>Status</th><th>Points</th><th>Response time</th><th>Submitted</th></tr></thead><tbody>{question.answers.length ? [...question.answers].sort((first, second) => (first.submittedAt?.toMillis() ?? 0) - (second.submittedAt?.toMillis() ?? 0)).map(answer => <tr key={answer.id}><td><strong>{playerNames.get(`${answer.roundId}:${answer.studentUid}`) ?? 'Unknown player'}</strong><small><code>{answer.studentUid}</code></small></td><td>{answer.selections.map(value => optionLabels[value]).join(', ')}</td><td>{answer.awarded ? 'Scored' : 'Pending'}</td><td>{answer.points === undefined ? '—' : answer.points.toLocaleString('en-US')}</td><td>{answer.responseTimeMs === undefined ? '—' : `${(answer.responseTimeMs / 1000).toFixed(1)} sec`}</td><td>{formatDate(answer.submittedAt)}</td></tr>) : <tr><td colSpan={6}>No answers submitted for this question.</td></tr>}</tbody></table></div></details>) : <div className="panel records-empty">No question codes have been created.</div>}</section>
+    </div>}
+  </section>
+}
+
 function HostPage() {
   const { user, loading: authLoading, isGoogleUser } = useFirebaseUser()
   const scoreboard = useScoreboard(Boolean(user && isGoogleUser))
@@ -183,6 +204,7 @@ function HostPage() {
       <aside className="panel qr-card"><span className="eyebrow">STUDENT ACCESS</span><h2>{code}</h2>{qrCode ? <img alt={`QR code to join question ${code}`} src={qrCode} /> : <div className="qr-placeholder">Set up the question<br />to display a QR code</div>}<button className="secondary-button" disabled={!joinUrl} onClick={() => void navigator.clipboard.writeText(joinUrl)}>Copy join link</button></aside></div>
     {question && isCurrentRound && <div className="host-grid question-control-grid"><section className="panel host-question"><div className="question-meta"><span>{code}</span><span>{answers.length} {answers.length === 1 ? 'response' : 'responses'}</span></div><h2>See the slide for the question</h2><ol className="host-options eight-options">{optionLabels.map((label, index) => <li className={revealed.includes(index) ? 'correct' : ''} key={label}><span>{label}</span><strong>{answers.filter(answer => answer.selections.includes(index)).length}</strong></li>)}</ol><div className="host-actions">{question.isOpen ? <button className="danger-button" disabled={busy} onClick={() => void run(() => closeQuestionAndScore(code))}>{busy ? 'Calculating…' : 'Close and reveal answer'}</button> : <button className="primary-button" disabled={busy} onClick={() => void run(() => setQuestionOpen(code, true))}>Open for answers</button>}</div></section>
       <aside className="host-sidebar"><section className="panel metric-card"><span>Responses</span><strong>{answers.length}</strong><small>One answer per student</small></section><section className="panel metric-card"><span>Completely correct</span><strong>{revealed.length ? correctCount : '—'}</strong><small>{revealed.length ? '+1,000 points each' : 'Shown after results'}</small></section><a className="panel projector-link" href="#/scoreboard"><span>Open global scoreboard</span><strong>↗</strong></a><button className="text-button" onClick={() => window.confirm('Starting a new scoreboard round resets future questions to 0 points. Continue?') && user && void run(async () => { await startNewScoreboardRound(user) })}>Start a new scoreboard round</button><button className="text-button" onClick={() => void signOutHost()}>Sign out</button></aside></div>}
+    {user && <HostRecordsPanel activeRoundId={scoreboard.config?.activeRoundId} hostUid={user.uid} />}
   </main>
 }
 

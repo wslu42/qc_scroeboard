@@ -6,7 +6,7 @@
 
 - `#/join`：掃描 QR code 或輸入 `0S1Q01` 格式的題目代碼；首次輸入暱稱
 - `#/play`：勾選 A–H 多個答案並明確送出，關題後查看正確組合
-- `#/host`：Google 講師登入、設定題目代碼與正確組合、產生 QR code、開關及結算題目；下方的 host-only archive 可查看該講師帳號擁有的所有計分輪次、學生、題目答案與作答紀錄
+- `#/host`：Google 講師登入、設定題目代碼與正確組合、產生 QR code、開關及結算題目；下方的講師專用紀錄可查看該講師帳號擁有的所有計分輪次、學生、題目答案與作答紀錄
 - `#/scoreboard`：跨所有 Session 共用的 active 個人總積分排行榜
 
 專案採 hash router。講師控制台位於 `https://qc-scoreboard-69c7b.web.app/#/host`；題目 QR code 連結形式為 `#/join?code=0S1Q01`。格式固定為 `0S#Q##`：Session 是一位數、Question 是兩位數。

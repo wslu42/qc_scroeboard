@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  GoogleAuthProvider, onAuthStateChanged, signInAnonymously, signInWithPopup,
-  signOut, type User,
+  browserLocalPersistence, GoogleAuthProvider, onAuthStateChanged, setPersistence,
+  signInAnonymously, signInWithPopup, signOut, type User,
 } from 'firebase/auth'
 import {
   collection, doc, getDoc, getDocs, increment, onSnapshot, query,
@@ -84,13 +84,14 @@ export function useFirebaseUser() {
 }
 
 export async function ensureAnonymousUser() {
+  await auth.authStateReady()
   if (auth.currentUser) return auth.currentUser
   return (await signInAnonymously(auth)).user
 }
 
 export async function signInAsHost() {
+  await setPersistence(auth, browserLocalPersistence)
   const provider = new GoogleAuthProvider()
-  provider.setCustomParameters({ prompt: 'select_account' })
   return (await signInWithPopup(auth, provider)).user
 }
 

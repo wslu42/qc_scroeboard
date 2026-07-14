@@ -56,7 +56,9 @@ npm run dev
 
 本機通常為 `http://localhost:5173/#/join`。`localhost` 預設是 Firebase Auth 的授權網域。
 
-由於 Firebase Auth 的 browser-local 登入狀態會在同一 origin 的分頁間同步，不適合在同一個瀏覽器 profile 用多分頁同時模擬講師與不同學生。請使用不同瀏覽器 profile、無痕視窗，或真實的不同裝置測試各種角色。
+Firebase Auth 使用 browser-local persistence。程式會先等待既有登入狀態還原，再視需要建立匿名學員，避免頁面重載時以匿名登入覆蓋講師的 Google session。同一裝置、瀏覽器 profile 與 origin 下，講師登入應跨重載與瀏覽器重啟保留；Firebase 約每小時更新 ID token 時不會要求重新登入。手動登出、無痕視窗關閉、清除網站資料、瀏覽器封鎖儲存空間，或切換 `web.app`／`firebaseapp.com` 等 origin，仍會需要重新登入。
+
+由於登入狀態會在同一 origin 的分頁間同步，不適合在同一個瀏覽器 profile 用多分頁同時模擬講師與不同學生。請使用不同瀏覽器 profile、無痕視窗，或真實的不同裝置測試各種角色。
 
 ## 檢查與 build
 

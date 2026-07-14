@@ -115,7 +115,7 @@ export function useQuestion(codeValue: string, enabled = true) {
       } else {
         setQuestion(null)
       }
-      if (!snapshot.exists()) setError('找不到這個題目代碼。')
+      if (!snapshot.exists()) setError('Question code not found.')
       setLoading(false)
     }, reason => { setError(reason.message); setLoading(false) })
   }, [code, enabled])
@@ -217,7 +217,7 @@ export function useHostRecords(hostUid: string | undefined, enabled: boolean) {
         setRounds(roundRecords.sort((first, second) => (second.createdAt?.toMillis() ?? 0) - (first.createdAt?.toMillis() ?? 0)))
         setQuestions(questionRecords.sort((first, second) => first.code.localeCompare(second.code)))
       } catch (reason) {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : '無法載入課堂紀錄。')
+        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to load class records.')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -253,7 +253,7 @@ async function ensureScoreboard(user: User) {
   const configSnapshot = await getDoc(configReference)
   if (configSnapshot.exists()) {
     const config = configSnapshot.data() as ScoreboardConfig
-    if (config.hostUid !== user.uid) throw new Error('目前計分板由另一個講師帳號管理。')
+    if (config.hostUid !== user.uid) throw new Error('This scoreboard is managed by another instructor account.')
     return config
   }
   const roundId = `round-${Date.now().toString(36)}`
@@ -266,7 +266,7 @@ async function ensureScoreboard(user: User) {
 
 export async function startNewScoreboardRound(user: User) {
   const config = await ensureScoreboard(user)
-  if (config.hostUid !== user.uid) throw new Error('你沒有重設這個計分板的權限。')
+  if (config.hostUid !== user.uid) throw new Error('You do not have permission to reset this scoreboard.')
   const roundId = `round-${Date.now().toString(36)}`
   const batch = writeBatch(db)
   batch.set(doc(db, 'scoreboardRounds', roundId), { id: roundId, hostUid: user.uid, createdAt: serverTimestamp() })
@@ -276,15 +276,15 @@ export async function startNewScoreboardRound(user: User) {
 }
 
 export async function prepareQuestion(user: User, codeValue: string, options: number[]) {
-  if (user.isAnonymous) throw new Error('請先使用 Google 講師帳號登入。')
+  if (user.isAnonymous) throw new Error('Sign in with your instructor Google account first.')
   const parsed = parseQuestionCode(codeValue)
-  if (!parsed) throw new Error('題目代碼格式應為 0S1Q01。')
+  if (!parsed) throw new Error('Question codes must follow the format 0S1Q01.')
   const correctOptions = [...new Set(options)].sort((a, b) => a - b)
-  if (!correctOptions.length) throw new Error('請至少設定一個正確選項。')
+  if (!correctOptions.length) throw new Error('Select at least one correct answer.')
   const config = await ensureScoreboard(user)
   const reference = doc(db, 'questions', parsed.code)
   const existing = await getDoc(reference)
-  if (existing.exists() && existing.data().hostUid !== user.uid) throw new Error('這個題目代碼已由其他講師建立。')
+  if (existing.exists() && existing.data().hostUid !== user.uid) throw new Error('Another instructor already created this question code.')
   await setDoc(reference, {
     ...parsed,
     hostUid: user.uid,
@@ -301,18 +301,18 @@ export async function prepareQuestion(user: User, codeValue: string, options: nu
 
 export async function joinQuestion(codeValue: string, nicknameValue: string) {
   const code = normalizeCode(codeValue)
-  if (!isValidQuestionCode(code)) throw new Error('題目代碼格式應為 0S1Q01。')
+  if (!isValidQuestionCode(code)) throw new Error('Question codes must follow the format 0S1Q01.')
   const nickname = nicknameValue.trim().slice(0, 20)
-  if (!nickname) throw new Error('請輸入暱稱。')
+  if (!nickname) throw new Error('Enter a nickname.')
   const user = await ensureAnonymousUser()
   const [questionSnapshot, configSnapshot] = await Promise.all([
     getDoc(doc(db, 'questions', code)), getDoc(doc(db, 'config', 'scoreboard')),
   ])
-  if (!questionSnapshot.exists()) throw new Error('找不到這個題目代碼。')
-  if (!configSnapshot.exists()) throw new Error('目前沒有啟用中的計分板。')
+  if (!questionSnapshot.exists()) throw new Error('Question code not found.')
+  if (!configSnapshot.exists()) throw new Error('There is no active scoreboard.')
   const question = questionSnapshot.data() as QuestionActivity
   const config = configSnapshot.data() as ScoreboardConfig
-  if (question.roundId !== config.activeRoundId) throw new Error('這道題目不屬於目前的計分板。')
+  if (question.roundId !== config.activeRoundId) throw new Error('This question is not part of the active scoreboard.')
   const playerReference = doc(db, 'scoreboardRounds', question.roundId, 'players', user.uid)
   const playerSnapshot = await getDoc(playerReference)
   if (playerSnapshot.exists()) await updateDoc(playerReference, { nickname })
@@ -324,8 +324,8 @@ export async function joinQuestion(codeValue: string, nicknameValue: string) {
 export async function submitAnswer(codeValue: string, roundId: string, sessionKey: string, selectionsValue: number[], uid: string) {
   const code = normalizeCode(codeValue)
   const selections = [...new Set(selectionsValue)].sort((a, b) => a - b)
-  if (!selections.length || selections.some(value => value < 0 || value > 7)) throw new Error('請至少選擇一個 A–H 選項。')
-  if (!/^S\d$/.test(sessionKey)) throw new Error('題目的 Session 設定無效，請講師重新儲存題目。')
+  if (!selections.length || selections.some(value => value < 0 || value > 7)) throw new Error('Select at least one option from A–H.')
+  if (!/^S\d$/.test(sessionKey)) throw new Error('This question has an invalid session setting. Ask the instructor to save it again.')
   const answerId = `${roundId}_${uid}`
   const batch = writeBatch(db)
   batch.set(doc(db, 'questions', code, 'answers', answerId), {
@@ -350,13 +350,13 @@ export async function closeQuestionAndScore(codeValue: string) {
   const [questionSnapshot, keySnapshot] = await Promise.all([
     getDoc(doc(db, 'questions', code)), getDoc(doc(db, 'questions', code, 'private', 'answerKey')),
   ])
-  if (!questionSnapshot.exists() || !keySnapshot.exists()) throw new Error('找不到題目或答案設定。')
+  if (!questionSnapshot.exists() || !keySnapshot.exists()) throw new Error('Question or answer settings not found.')
   const question = questionSnapshot.data() as QuestionActivity
   const openedAtMs = question.openedAt?.toMillis()
   const correctOptions = [...(keySnapshot.data().correctOptions as number[])].sort((a, b) => a - b)
   const answersSnapshot = await getDocs(query(collection(db, 'questions', code, 'answers'), where('roundId', '==', question.roundId)))
   const pending = answersSnapshot.docs.filter(item => item.data().awarded !== true)
-  if (pending.length > 200) throw new Error('單次結算最多支援 200 位學生。')
+  if (pending.length > 200) throw new Error('A single question can score up to 200 students at a time.')
   const batch = writeBatch(db)
   batch.update(doc(db, 'questions', code), { isOpen: false, revealedOptions: correctOptions, updatedAt: serverTimestamp() })
   pending.forEach(answerDocument => {
